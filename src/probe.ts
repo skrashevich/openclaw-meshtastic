@@ -37,14 +37,34 @@ export async function probeMeshtastic(
   try {
     const address = buildMeshtasticTransportAddress(account.host, account.port);
     const url = `${account.tls ? "https" : "http"}://${address}`;
-    const response = await fetch(`${url}/api/v1/toradio`, {
-      method: "OPTIONS",
-      signal: controller.signal,
-    });
-    if (!response.ok) {
+    const probeCandidates: Array<{ method: "OPTIONS" | "GET"; path: string }> = [
+      { method: "OPTIONS", path: "/api/v1/toradio" },
+      { method: "GET", path: "/api/v1/fromradio?all=false" },
+    ];
+    let probeResponse: Response | null = null;
+    for (const candidate of probeCandidates) {
+      const response = await fetch(`${url}${candidate.path}`, {
+        method: candidate.method,
+        signal: controller.signal,
+      });
+      // Some bridges (including serial2tcp wrappers) do not implement OPTIONS.
+      // Treat 404/405 as endpoint-method mismatch and try the next candidate.
+      if (response.status === 404 || response.status === 405) {
+        continue;
+      }
+      probeResponse = response;
+      break;
+    }
+    if (!probeResponse) {
       return {
         ...base,
-        error: `HTTP ${response.status} ${response.statusText}`,
+        error: "HTTP probe endpoints unavailable (received 404/405)",
+      };
+    }
+    if (!probeResponse.ok) {
+      return {
+        ...base,
+        error: `HTTP ${probeResponse.status} ${probeResponse.statusText}`,
       };
     }
     await TransportHTTP.create(address, account.tls);

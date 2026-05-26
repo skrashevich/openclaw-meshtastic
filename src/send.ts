@@ -105,6 +105,11 @@ function resolveLatestQueuedPacketId(device: MeshtasticSendDevice): number | und
   }).id;
 }
 
+function resolveFallbackPacketId(): number {
+  // Keep ids positive and reasonably unique even when HTTP bridges never return ACK ids.
+  return Date.now();
+}
+
 async function waitForMeshtasticSend(params: {
   send: Promise<number>;
   device: MeshtasticSendDevice;
@@ -222,7 +227,7 @@ export async function sendMessageMeshtastic(
 
   recordMeshtasticOutboundActivity(account.accountId);
 
-  const messageId = String(lastPacketId);
+  const messageId = String(lastPacketId > 0 ? lastPacketId : resolveFallbackPacketId());
   return {
     messageId,
     target,
