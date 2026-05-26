@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { probeMeshtastic } from "./probe.js";
 import type { CoreConfig } from "./types.js";
 
@@ -25,6 +25,11 @@ function createConfig(): CoreConfig {
 }
 
 describe("probeMeshtastic", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
   it("falls back to GET probe when OPTIONS is not supported", async () => {
     createTransportMock.mockResolvedValue({});
     const fetchMock = vi

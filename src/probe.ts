@@ -50,6 +50,7 @@ export async function probeMeshtastic(
       // Some bridges (including serial2tcp wrappers) do not implement OPTIONS.
       // Treat 404/405 as endpoint-method mismatch and try the next candidate.
       if (response.status === 404 || response.status === 405) {
+        await response.body?.cancel();
         continue;
       }
       probeResponse = response;
@@ -58,15 +59,17 @@ export async function probeMeshtastic(
     if (!probeResponse) {
       return {
         ...base,
-        error: "HTTP probe endpoints unavailable (received 404/405)",
+        error: "All HTTP probe endpoints returned 404/405",
       };
     }
     if (!probeResponse.ok) {
+      await probeResponse.body?.cancel();
       return {
         ...base,
         error: `HTTP ${probeResponse.status} ${probeResponse.statusText}`,
       };
     }
+    await probeResponse.body?.cancel();
     await TransportHTTP.create(address, account.tls);
     const elapsed = Date.now() - started;
     return {

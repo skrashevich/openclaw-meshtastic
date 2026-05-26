@@ -123,6 +123,6 @@ describe("sendMessageMeshtastic", () => {
       ackWaitMs: 1,
     });
 
-    expect(Number(result.messageId)).toBeGreaterThan(0);
+    expect(result.messageId).toMatch(/^fallback:\d+$/);
   });
 });
