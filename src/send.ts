@@ -27,6 +27,7 @@ type SendMeshtasticOptions = {
   replyTo?: string;
   target?: string;
   deviceHandle?: MeshtasticDeviceHandle;
+  ackWaitMs?: number;
 };
 
 type SendMeshtasticResult = {
@@ -36,6 +37,18 @@ type SendMeshtasticResult = {
 };
 
 const DEFAULT_CHUNK_LIMIT = 200;
+const DEFAULT_SEND_ACK_WAIT_MS = 5_000;
+
+type MeshtasticQueueSnapshotItem = {
+  id: number;
+  added?: Date;
+};
+
+type MeshtasticSendDevice = MeshtasticDeviceHandle["device"] & {
+  queue?: {
+    getState?: () => MeshtasticQueueSnapshotItem[];
+  };
+};
 
 function recordMeshtasticOutboundActivity(accountId: string): void {
   try {
@@ -80,6 +93,66 @@ function resolveTarget(to: string, opts?: SendMeshtasticOptions): string {
   throw new Error(`Invalid Meshtastic target: ${to}`);
 }
 
+function resolveLatestQueuedPacketId(device: MeshtasticSendDevice): number | undefined {
+  const state = device.queue?.getState?.();
+  if (!state?.length) {
+    return undefined;
+  }
+  return state.reduce((latest, item) => {
+    const latestAt = latest.added?.getTime?.() ?? 0;
+    const itemAt = item.added?.getTime?.() ?? 0;
+    return itemAt >= latestAt ? item : latest;
+  }).id;
+}
+
+async function waitForMeshtasticSend(params: {
+  send: Promise<number>;
+  device: MeshtasticSendDevice;
+  timeoutMs?: number;
+}): Promise<number> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const queuedPacketId = resolveLatestQueuedPacketId(params.device);
+
+  try {
+    return await Promise.race([
+      params.send,
+      new Promise<number>((resolve) => {
+        timer = setTimeout(() => {
+          resolve(queuedPacketId ?? 0);
+        }, params.timeoutMs ?? DEFAULT_SEND_ACK_WAIT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+    params.send.catch(() => undefined);
+  }
+}
+
+async function sendTextWithoutBlockingForAck(params: {
+  handle: MeshtasticDeviceHandle;
+  text: string;
+  destination: number | "broadcast";
+  channel?: ReturnType<typeof resolveChannelNumber>;
+  replyId?: number;
+  ackWaitMs?: number;
+}): Promise<number> {
+  rememberOutboundEcho(params.text);
+  const send = params.handle.device.sendText(
+    params.text,
+    params.destination,
+    true,
+    params.channel,
+    params.replyId,
+  );
+  return await waitForMeshtasticSend({
+    send,
+    device: params.handle.device as MeshtasticSendDevice,
+    timeoutMs: params.ackWaitMs,
+  });
+}
+
 export async function sendMessageMeshtastic(
   to: string,
   text: string,
@@ -122,7 +195,14 @@ export async function sendMessageMeshtastic(
     const channelIndex = parseMeshtasticChannelIndex(target) ?? 0;
     const channel = resolveChannelNumber(channelIndex);
     for (const chunk of chunks) {
-      lastPacketId = await handle.device.sendText(chunk, "broadcast", true, channel, parsedReplyId);
+      lastPacketId = await sendTextWithoutBlockingForAck({
+        handle,
+        text: chunk,
+        destination: "broadcast",
+        channel,
+        replyId: parsedReplyId,
+        ackWaitMs: opts.ackWaitMs,
+      });
     }
   } else {
     const nodeNum = parseMeshtasticNodeNum(target);
@@ -130,12 +210,17 @@ export async function sendMessageMeshtastic(
       throw new Error(`Invalid Meshtastic node target: ${target}`);
     }
     for (const chunk of chunks) {
-      lastPacketId = await handle.device.sendText(chunk, nodeNum, true, undefined, parsedReplyId);
+      lastPacketId = await sendTextWithoutBlockingForAck({
+        handle,
+        text: chunk,
+        destination: nodeNum,
+        replyId: parsedReplyId,
+        ackWaitMs: opts.ackWaitMs,
+      });
     }
   }
 
   recordMeshtasticOutboundActivity(account.accountId);
-  rememberOutboundEcho(text);
 
   const messageId = String(lastPacketId);
   return {

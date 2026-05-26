@@ -189,7 +189,13 @@ describe("meshtastic inbound behavior", () => {
       sendReply,
     });
 
-    expect(getMeshtasticRuntime().channel.turn.runAssembled).toHaveBeenCalled();
+    expect(getMeshtasticRuntime().channel.turn.runAssembled).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyOptions: expect.objectContaining({
+          sourceReplyDeliveryMode: "automatic",
+        }),
+      }),
+    );
     expect(sendReply).not.toHaveBeenCalled();
   });
 

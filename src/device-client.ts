@@ -1,4 +1,4 @@
-import { ChannelNumber, MeshDevice } from "@meshtastic/core";
+import { MeshDevice, Types } from "@meshtastic/core";
 import { TransportHTTP } from "@meshtastic/transport-http";
 
 export type MeshtasticDeviceHandle = {
@@ -9,8 +9,63 @@ export type MeshtasticDeviceHandle = {
 
 const devices = new Map<string, MeshtasticDeviceHandle>();
 
+type MeshtasticHttpTransportInternals = {
+  url: string;
+  receiveBatchRequests?: boolean;
+  inflightReadController?: AbortController;
+  fromDeviceController?: {
+    enqueue: (output: { type: "packet"; data: Uint8Array }) => void;
+  };
+  emitStatus?: (next: Types.DeviceStatusEnum, reason?: string) => void;
+};
+
 export function buildMeshtasticTransportAddress(host: string, port: number): string {
   return `${host}:${port}`;
+}
+
+function toMeshtasticHttpTransportInternals(
+  transport: Awaited<ReturnType<typeof TransportHTTP.create>>,
+): MeshtasticHttpTransportInternals & { readFromRadio?: () => Promise<void> } {
+  return transport as unknown as MeshtasticHttpTransportInternals & {
+    readFromRadio?: () => Promise<void>;
+  };
+}
+
+function installHttpTransportBackpressure(
+  transport: Awaited<ReturnType<typeof TransportHTTP.create>>,
+): void {
+  const http = toMeshtasticHttpTransportInternals(transport);
+  if (!http.url || typeof http.readFromRadio !== "function") {
+    return;
+  }
+
+  http.receiveBatchRequests = true;
+  http.inflightReadController?.abort();
+  http.readFromRadio = async () => {
+    const inflight = new AbortController();
+    http.inflightReadController = inflight;
+    const signal = AbortSignal.any([inflight.signal, AbortSignal.timeout(7_000)]);
+    try {
+      const response = await fetch(`${http.url}/api/v1/fromradio?all=true`, {
+        method: "GET",
+        headers: { Accept: "application/x-protobuf" },
+        signal,
+      });
+      if (!response.ok) {
+        throw new Error(`fromradio ${response.status} ${response.statusText}`);
+      }
+      http.emitStatus?.(Types.DeviceStatusEnum.DeviceConnected);
+      const readBuffer = await response.arrayBuffer();
+      if (readBuffer.byteLength > 0) {
+        http.fromDeviceController?.enqueue({
+          type: "packet",
+          data: new Uint8Array(readBuffer),
+        });
+      }
+    } finally {
+      http.inflightReadController = undefined;
+    }
+  };
 }
 
 export async function connectMeshtasticDevice(params: {
@@ -26,6 +81,7 @@ export async function connectMeshtasticDevice(params: {
 
   const address = buildMeshtasticTransportAddress(params.host, params.port);
   const transport = await TransportHTTP.create(address, params.tls);
+  installHttpTransportBackpressure(transport);
   const device = new MeshDevice(transport);
   const handle: MeshtasticDeviceHandle = {
     accountId: params.accountId,
@@ -55,6 +111,10 @@ export async function disconnectMeshtasticDevice(accountId: string): Promise<voi
   }
   try {
     await handle.device.disconnect();
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("Invalid state")) {
+      throw error;
+    }
   } finally {
     devices.delete(accountId);
   }
@@ -64,25 +124,23 @@ export function getMeshtasticDevice(accountId: string): MeshtasticDeviceHandle |
   return devices.get(accountId);
 }
 
-export function resolveChannelNumber(channelIndex: number): ChannelNumber {
-  switch (channelIndex) {
-    case 0:
-      return ChannelNumber.Primary;
-    case 1:
-      return ChannelNumber.Channel1;
-    case 2:
-      return ChannelNumber.Channel2;
-    case 3:
-      return ChannelNumber.Channel3;
-    case 4:
-      return ChannelNumber.Channel4;
-    case 5:
-      return ChannelNumber.Channel5;
-    case 6:
-      return ChannelNumber.Channel6;
-    case 7:
-      return ChannelNumber.Admin;
-    default:
-      return ChannelNumber.Primary;
+/** Meshtastic channel indices for sendText — @meshtastic/core v2.6+ no longer exports ChannelNumber. */
+export const MeshtasticChannel = {
+  Primary: 0,
+  Channel1: 1,
+  Channel2: 2,
+  Channel3: 3,
+  Channel4: 4,
+  Channel5: 5,
+  Channel6: 6,
+  Admin: 7,
+} as const;
+
+export type MeshtasticChannelIndex = (typeof MeshtasticChannel)[keyof typeof MeshtasticChannel];
+
+export function resolveChannelNumber(channelIndex: number): MeshtasticChannelIndex {
+  if (channelIndex >= 0 && channelIndex <= 7) {
+    return channelIndex as MeshtasticChannelIndex;
   }
+  return MeshtasticChannel.Primary;
 }

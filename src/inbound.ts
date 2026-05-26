@@ -370,6 +370,10 @@ export async function handleMeshtasticInbound(params: {
     },
     replyPipeline: {},
     replyOptions: {
+      // Meshtastic is plain text over LoRa; message_tool_only adds an internal
+      // delivery hint to the agent prompt and expects visible sends via the
+      // message tool, which does not fit this channel.
+      sourceReplyDeliveryMode: "automatic",
       skillFilter: groupMatch.groupConfig?.skills,
       disableBlockStreaming:
         typeof account.config.blockStreaming === "boolean"
