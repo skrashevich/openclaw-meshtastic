@@ -5,6 +5,7 @@ import {
   disconnectMeshtasticDevice,
   type MeshtasticDeviceHandle,
 } from "./device-client.js";
+import { decryptChannelPacket, expandPsk } from "./crypto.js";
 import { isOutboundEcho, rememberOutboundEcho } from "./echo-dedupe.js";
 import { handleMeshtasticInbound } from "./inbound.js";
 import { formatMeshtasticChannelTarget, formatMeshtasticNodeId } from "./normalize.js";
@@ -127,6 +128,120 @@ export async function monitorMeshtasticProvider(
 
   const allowedChannels = new Set(account.config.channels ?? [0]);
   const unsubscribers: Array<() => void> = [];
+
+  // Collect channel PSKs from device config for decrypting encrypted packets
+  // (TCP/serial transports receive encrypted payloads that @meshtastic/core won't decrypt)
+  const channelPsks = new Map<number, Uint8Array>();
+
+  unsubscribers.push(
+    handle.device.events.onChannelPacket.subscribe((channel: { index?: number; settings?: { psk?: Uint8Array } }) => {
+      const idx = channel.index ?? 0;
+      const rawPsk = channel.settings?.psk;
+      if (rawPsk && rawPsk.length > 0) {
+        const expanded = expandPsk(rawPsk);
+        if (expanded) {
+          channelPsks.set(idx, expanded);
+        }
+      }
+    }),
+  );
+
+  // For non-HTTP transports: intercept encrypted mesh packets, decrypt with channel PSK,
+  // then forward to the normal onMessagePacket handler pipeline.
+  if (account.transport !== "http") {
+    unsubscribers.push(
+      handle.device.events.onMeshPacket.subscribe((meshPacket: {
+        id: number;
+        from: number;
+        to: number;
+        channel: number;
+        rxTime: number;
+        payloadVariant: { case: string; value: unknown };
+      }) => {
+        if (meshPacket.payloadVariant.case !== "encrypted") {
+          return; // decoded packets are handled by onMessagePacket already
+        }
+        const encrypted = meshPacket.payloadVariant.value as Uint8Array;
+        const chIdx = channelIndexFromPacket(meshPacket.channel);
+        const psk = channelPsks.get(chIdx);
+        if (!psk) {
+          logger.debug?.(
+            `[${account.accountId}] no PSK for channel ${chIdx}, cannot decrypt packet ${meshPacket.id}`,
+          );
+          return;
+        }
+        const decrypted = decryptChannelPacket(encrypted, psk, meshPacket.from, meshPacket.id, chIdx);
+        if (!decrypted) {
+          logger.debug?.(
+            `[${account.accountId}] decrypt failed for packet ${meshPacket.id} on channel ${chIdx}`,
+          );
+          return;
+        }
+        // Build a synthetic MeshtasticPacket matching onMessagePacket shape and dispatch
+        const syntheticPacket: MeshtasticPacket = {
+          id: meshPacket.id,
+          rxTime: new Date(meshPacket.rxTime ? meshPacket.rxTime * 1000 : Date.now()),
+          type: meshPacket.to === 0xffffffff ? "broadcast" : "direct",
+          from: meshPacket.from,
+          to: meshPacket.to,
+          channel: meshPacket.channel,
+          data: new TextDecoder().decode(decrypted),
+        };
+        void (async () => {
+          try {
+            const message = buildInboundMessage({ packet: syntheticPacket, myNodeNum: handle.myNodeNum });
+            if (!message) {
+              return;
+            }
+            if (message.isGroup && !allowedChannels.has(message.meshChannel)) {
+              return;
+            }
+            logger.info(
+              `[${account.accountId}] inbound (decrypted) ${message.isGroup ? "group" : "dm"} from ${message.senderId} on ${message.target}: ${message.text.slice(0, 80)}`,
+            );
+            core.channel.activity.record({
+              channel: "meshtastic",
+              accountId: account.accountId,
+              direction: "inbound",
+              at: message.timestamp,
+            });
+            if (opts.onMessage) {
+              await opts.onMessage(message, handle);
+              return;
+            }
+            await handleMeshtasticInbound({
+              message,
+              account,
+              config: cfg,
+              runtime,
+              myNodeNum: handle.myNodeNum,
+              sendReply: async (target, text, replyToId) => {
+                const { sendMessageMeshtastic } = await import("./send.js");
+                await sendMessageMeshtastic(target, text, {
+                  cfg,
+                  accountId: account.accountId,
+                  replyTo: replyToId,
+                  deviceHandle: handle,
+                });
+                rememberOutboundEcho(text);
+                opts.statusSink?.({ lastOutboundAt: Date.now() });
+                core.channel.activity.record({
+                  channel: "meshtastic",
+                  accountId: account.accountId,
+                  direction: "outbound",
+                });
+              },
+              statusSink: opts.statusSink,
+            });
+          } catch (err) {
+            const line = `[${account.accountId}] decrypted inbound handler failed: ${String(err)}`;
+            logger.error?.(line);
+            runtime.error?.(line);
+          }
+        })();
+      }),
+    );
+  }
 
   unsubscribers.push(
     handle.device.events.onMessagePacket.subscribe((packet: MeshtasticPacket) => {
