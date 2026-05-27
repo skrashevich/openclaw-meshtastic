@@ -14,11 +14,12 @@ Connects OpenClaw to a Meshtastic device via `@meshtastic/core` and official tra
 
 Supported:
 
-- Direct messages (DM)
-- Mesh broadcast channels
+- Direct messages (DM) with pairing, allowlist, and open policies
+- Mesh broadcast channels with per-channel group policy
 - Reply-to threading
-- Pairing, allowlist, and group policy controls
+- Client-side AES-CTR decryption for TCP/serial transports
 - Outbound text chunking for mesh size limits
+- Multi-agent binding (separate agent for mesh traffic)
 
 ## Requirements
 
@@ -27,28 +28,24 @@ Supported:
 
 ## Install
 
-From npm (when published):
-
-```bash
-openclaw plugins install @openclaw/meshtastic
-```
-
-From a git checkout:
+From a git checkout (development):
 
 ```bash
 git clone https://github.com/skrashevich/openclaw-meshtastic.git
 openclaw plugins install --link /path/to/openclaw-meshtastic
 ```
 
-From a local directory:
+From npm (when published):
 
 ```bash
-openclaw plugins install --link .
+openclaw plugins install @openclaw/meshtastic
 ```
 
 Restart the Gateway after installing or enabling the plugin.
 
-Enable in config:
+## Quick setup
+
+### 1. Enable the plugin
 
 ```json5
 {
@@ -61,9 +58,25 @@ Enable in config:
 }
 ```
 
-## Quick setup
+For local development, add the plugin path:
 
-### HTTP (node API)
+```json5
+{
+  plugins: {
+    allow: ["meshtastic"],
+    load: {
+      paths: ["/path/to/openclaw-meshtastic"],
+    },
+    entries: {
+      meshtastic: { enabled: true },
+    },
+  },
+}
+```
+
+### 2. Configure the channel
+
+#### HTTP (node API)
 
 ```json5
 {
@@ -84,7 +97,7 @@ Enable in config:
 }
 ```
 
-### TCP (protobuf stream, e.g. serial2tcp)
+#### TCP (protobuf stream, e.g. serial2tcp)
 
 ```json5
 {
@@ -94,12 +107,18 @@ Enable in config:
       transport: "tcp",
       host: "127.0.0.1",
       port: 4403,
+      dmPolicy: "pairing",
+      groupPolicy: "allowlist",
+      channels: [3],
+      groups: {
+        "channel:3": { requireMention: false },
+      },
     },
   },
 }
 ```
 
-### Serial (USB)
+#### Serial (USB)
 
 ```json5
 {
@@ -108,12 +127,39 @@ Enable in config:
       enabled: true,
       transport: "serial",
       serialPath: "/dev/ttyUSB0",
+      baudRate: 115200,
     },
   },
 }
 ```
 
-Environment variables (default account):
+### 3. Optional: dedicate an agent to mesh traffic
+
+To route Meshtastic messages to a separate agent (different model, workspace, or personality):
+
+```json5
+{
+  agents: {
+    list: [
+      { id: "main", workspace: "~/.openclaw/workspace" },
+      {
+        id: "meshtastic",
+        workspace: "~/.openclaw/workspace-meshtastic",
+        model: { primary: "openrouter/deepseek/deepseek-v4-flash" },
+        tools: { profile: "messaging" },
+      },
+    ],
+  },
+  bindings: [
+    { agentId: "main", match: { channel: "telegram", accountId: "default" } },
+    { agentId: "meshtastic", match: { channel: "meshtastic", accountId: "default" } },
+  ],
+}
+```
+
+Without a binding, Meshtastic traffic goes to the default agent.
+
+### 4. Environment variables (default account)
 
 - `MESHTASTIC_TRANSPORT` — `http`, `tcp`, or `serial`
 - `MESHTASTIC_HOST` — host for http/tcp (`host:port` allowed)
@@ -122,6 +168,18 @@ Environment variables (default account):
 - `MESHTASTIC_SERIAL` — serial device path
 
 See [docs/meshtastic.md](./docs/meshtastic.md) for the full configuration reference.
+
+## Encryption (TCP / serial)
+
+The HTTP transport decrypts packets server-side on the Meshtastic node. TCP and serial transports receive **encrypted** payloads (`payloadVariant.case === "encrypted"`) that `@meshtastic/core` does not decrypt natively.
+
+This plugin handles client-side decryption automatically for non-HTTP transports:
+
+1. On connect, the plugin collects per-channel PSKs from the device's channel settings via `onChannelPacket`.
+2. When an encrypted `MeshPacket` arrives, it is decrypted with AES-CTR (128 or 256 bit, depending on PSK length) using the nonce layout from the Meshtastic protocol spec.
+3. The decrypted payload is dispatched through the normal inbound message pipeline — DM policy, group policy, allowlist checks, and agent delivery all work as with HTTP.
+
+No extra configuration is needed; decryption is transparent.
 
 ## Development
 
