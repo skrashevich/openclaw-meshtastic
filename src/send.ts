@@ -165,7 +165,9 @@ export async function sendMessageMeshtastic(
 
   if (!account.configured) {
     throw new Error(
-      `Meshtastic is not configured for account "${account.accountId}" (need host in channels.meshtastic).`,
+      account.transport === "serial"
+        ? `Meshtastic is not configured for account "${account.accountId}" (need serialPath in channels.meshtastic).`
+        : `Meshtastic is not configured for account "${account.accountId}" (need host in channels.meshtastic).`,
     );
   }
 
@@ -181,9 +183,12 @@ export async function sendMessageMeshtastic(
     getMeshtasticDevice(account.accountId) ??
     (await connectMeshtasticDevice({
       accountId: account.accountId,
+      transport: account.transport,
       host: account.host,
       port: account.port,
       tls: account.tls,
+      serialPath: account.serialPath,
+      baudRate: account.baudRate,
     }));
 
   const replyId = opts.replyTo ? Number.parseInt(opts.replyTo, 10) : undefined;

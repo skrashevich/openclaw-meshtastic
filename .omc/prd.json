@@ -1,0 +1,38 @@
+{
+  "title": "Meshtastic official protobuf transports",
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Config and account resolution for http/tcp/serial",
+      "priority": 1,
+      "passes": true,
+      "acceptanceCriteria": [
+        "channels.meshtastic.transport accepts http, tcp, or serial",
+        "tcp defaults to port 4403; http keeps port 4433",
+        "serial uses serialPath (or MESHTASTIC_SERIAL) and is marked configured without host"
+      ]
+    },
+    {
+      "id": "US-002",
+      "title": "device-client connects via TransportNode and TransportNodeSerial",
+      "priority": 2,
+      "passes": true,
+      "acceptanceCriteria": [
+        "connectMeshtasticDevice uses @meshtastic/transport-node for tcp",
+        "connectMeshtasticDevice uses @meshtastic/transport-node-serial for serial",
+        "http path unchanged with protobuf over /api/v1/fromradio"
+      ]
+    },
+    {
+      "id": "US-003",
+      "title": "Probe, docs, and tests",
+      "priority": 3,
+      "passes": true,
+      "acceptanceCriteria": [
+        "probeMeshtastic validates tcp and serial transports",
+        "docs describe tcp (serial2tcp) and direct serial",
+        "npm test and npm run typecheck pass"
+      ]
+    }
+  ]
+}

@@ -5,10 +5,15 @@ import {
   normalizeLowercaseStringOrEmpty,
   normalizeOptionalString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
+import {
+  defaultPortForTransport,
+  DEFAULT_SERIAL_BAUD,
+  normalizeMeshtasticTransport,
+  type MeshtasticTransport,
+} from "./transport.js";
 import type { CoreConfig, MeshtasticAccountConfig } from "./types.js";
 
 const TRUTHY_ENV = new Set(["true", "1", "yes", "on"]);
-const DEFAULT_PORT = 4433;
 const DEFAULT_MESH_CHANNELS = [0];
 
 export type ResolvedMeshtasticAccount = {
@@ -16,9 +21,12 @@ export type ResolvedMeshtasticAccount = {
   enabled: boolean;
   name?: string;
   configured: boolean;
+  transport: MeshtasticTransport;
   host: string;
   port: number;
   tls: boolean;
+  serialPath: string;
+  baudRate: number;
   config: MeshtasticAccountConfig;
 };
 
@@ -57,6 +65,25 @@ function parseHostEnv(raw?: string): { host: string; port?: number } {
   return { host: trimmed };
 }
 
+function resolveTransport(
+  merged: MeshtasticAccountConfig,
+  accountId: string,
+): MeshtasticTransport {
+  if (merged.transport) {
+    return normalizeMeshtasticTransport(merged.transport);
+  }
+  if (accountId === DEFAULT_ACCOUNT_ID && process.env.MESHTASTIC_TRANSPORT?.trim()) {
+    return normalizeMeshtasticTransport(process.env.MESHTASTIC_TRANSPORT);
+  }
+  if (merged.serialPath?.trim()) {
+    return "serial";
+  }
+  if (accountId === DEFAULT_ACCOUNT_ID && process.env.MESHTASTIC_SERIAL?.trim()) {
+    return "serial";
+  }
+  return "http";
+}
+
 const {
   listAccountIds: listMeshtasticAccountIds,
   resolveDefaultAccountId: resolveDefaultMeshtasticAccountId,
@@ -64,8 +91,10 @@ const {
   normalizeAccountId,
   hasImplicitDefaultAccount: (cfg) => {
     const envHost = process.env.MESHTASTIC_HOST?.trim();
+    const envSerial = process.env.MESHTASTIC_SERIAL?.trim();
     const configHost = cfg.channels?.meshtastic?.host?.trim();
-    return Boolean(envHost || configHost);
+    const configSerial = cfg.channels?.meshtastic?.serialPath?.trim();
+    return Boolean(envHost || configHost || envSerial || configSerial);
   },
 });
 export { listMeshtasticAccountIds, resolveDefaultMeshtasticAccountId };
@@ -93,6 +122,7 @@ export function resolveMeshtasticAccount(params: {
     const merged = mergeMeshtasticAccountConfig(params.cfg, accountId);
     const accountEnabled = merged.enabled !== false;
     const enabled = baseEnabled && accountEnabled;
+    const transport = resolveTransport(merged, accountId);
 
     const envHost =
       accountId === DEFAULT_ACCOUNT_ID ? parseHostEnv(process.env.MESHTASTIC_HOST) : { host: "" };
@@ -106,14 +136,25 @@ export function resolveMeshtasticAccount(params: {
         : accountId === DEFAULT_ACCOUNT_ID && process.env.MESHTASTIC_TLS
           ? parseTruthy(process.env.MESHTASTIC_TLS)
           : false;
-    const port = configHost.port ?? envHost.port ?? merged.port ?? envPort ?? DEFAULT_PORT;
+    const port =
+      configHost.port ?? envHost.port ?? merged.port ?? envPort ?? defaultPortForTransport(transport);
+    const envSerial =
+      accountId === DEFAULT_ACCOUNT_ID ? normalizeOptionalString(process.env.MESHTASTIC_SERIAL) : "";
+    const serialPath = normalizeOptionalString(merged.serialPath) ?? envSerial ?? "";
+    const baudRate = merged.baudRate ?? DEFAULT_SERIAL_BAUD;
     const channels = merged.channels?.length ? merged.channels : DEFAULT_MESH_CHANNELS;
+
+    const configured =
+      transport === "serial" ? Boolean(serialPath) : Boolean(host);
 
     const config: MeshtasticAccountConfig = {
       ...merged,
+      transport,
       host,
       port,
       tls,
+      serialPath,
+      baudRate,
       channels,
     };
 
@@ -121,10 +162,13 @@ export function resolveMeshtasticAccount(params: {
       accountId,
       enabled,
       name: normalizeOptionalString(merged.name),
-      configured: Boolean(host),
+      configured,
+      transport,
       host,
       port,
       tls,
+      serialPath,
+      baudRate,
       config,
     } satisfies ResolvedMeshtasticAccount;
   };

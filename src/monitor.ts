@@ -8,6 +8,7 @@ import {
 import { isOutboundEcho, rememberOutboundEcho } from "./echo-dedupe.js";
 import { handleMeshtasticInbound } from "./inbound.js";
 import { formatMeshtasticChannelTarget, formatMeshtasticNodeId } from "./normalize.js";
+import { formatMeshtasticEndpoint } from "./transport.js";
 import type { RuntimeEnv } from "./runtime-api.js";
 import { getMeshtasticRuntime } from "./runtime.js";
 import type { CoreConfig, MeshtasticInboundMessage } from "./types.js";
@@ -103,7 +104,9 @@ export async function monitorMeshtasticProvider(
 
   if (!account.configured) {
     throw new Error(
-      `Meshtastic is not configured for account "${account.accountId}" (need host in channels.meshtastic).`,
+      account.transport === "serial"
+        ? `Meshtastic is not configured for account "${account.accountId}" (need serialPath in channels.meshtastic).`
+        : `Meshtastic is not configured for account "${account.accountId}" (need host in channels.meshtastic).`,
     );
   }
 
@@ -114,9 +117,12 @@ export async function monitorMeshtasticProvider(
 
   const handle = await connectMeshtasticDevice({
     accountId: account.accountId,
+    transport: account.transport,
     host: account.host,
     port: account.port,
     tls: account.tls,
+    serialPath: account.serialPath,
+    baudRate: account.baudRate,
   });
 
   const allowedChannels = new Set(account.config.channels ?? [0]);
@@ -200,7 +206,7 @@ export async function monitorMeshtasticProvider(
   );
 
   logger.info(
-    `[${account.accountId}] connected to Meshtastic HTTP API at ${account.tls ? "https" : "http"}://${account.host}:${account.port}`,
+    `[${account.accountId}] connected to Meshtastic (${account.transport}) at ${formatMeshtasticEndpoint(account)}`,
   );
 
   let stopped = false;

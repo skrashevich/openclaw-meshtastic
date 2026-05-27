@@ -1,11 +1,16 @@
 # @openclaw/meshtastic
 
-Standalone OpenClaw channel plugin for Meshtastic mesh networks via the node HTTP API.
+Standalone OpenClaw channel plugin for Meshtastic mesh networks using the **official Meshtastic protobuf stack**.
 
 ## Overview
 
-Connects OpenClaw to a Meshtastic device that exposes the HTTP API
-(`/api/v1/fromradio`, `/api/v1/toradio`) via `@meshtastic/transport-http`.
+Connects OpenClaw to a Meshtastic device via `@meshtastic/core` and official transports:
+
+| Transport | When to use |
+| --------- | ----------- |
+| **http** (default) | Node firmware HTTP API (`/api/v1/fromradio`, `/api/v1/toradio`, port 4433) |
+| **tcp** | Native protobuf TCP (port 4403) — firmware Wi‑Fi or [go-meshtastic-serial2tcp](https://github.com/skrashevich/go-meshtastic-serial2tcp) |
+| **serial** | USB serial on the Gateway host |
 
 Supported:
 
@@ -18,7 +23,7 @@ Supported:
 ## Requirements
 
 - OpenClaw **>= 2026.5.26**
-- A Meshtastic node with the HTTP API enabled
+- A Meshtastic node reachable by HTTP, TCP (4403), or USB serial
 
 ## Install
 
@@ -58,13 +63,15 @@ Enable in config:
 
 ## Quick setup
 
+### HTTP (node API)
+
 ```json5
 {
   channels: {
     meshtastic: {
       enabled: true,
+      transport: "http",
       host: "192.168.1.10",
-      tls: false,
       port: 4433,
       dmPolicy: "pairing",
       groupPolicy: "allowlist",
@@ -77,19 +84,51 @@ Enable in config:
 }
 ```
 
+### TCP (protobuf stream, e.g. serial2tcp)
+
+```json5
+{
+  channels: {
+    meshtastic: {
+      enabled: true,
+      transport: "tcp",
+      host: "127.0.0.1",
+      port: 4403,
+    },
+  },
+}
+```
+
+### Serial (USB)
+
+```json5
+{
+  channels: {
+    meshtastic: {
+      enabled: true,
+      transport: "serial",
+      serialPath: "/dev/ttyUSB0",
+    },
+  },
+}
+```
+
 Environment variables (default account):
 
-- `MESHTASTIC_HOST` — node host or `host:port`
-- `MESHTASTIC_PORT` — HTTP API port (default 4433)
-- `MESHTASTIC_TLS` — set to `true` for HTTPS
+- `MESHTASTIC_TRANSPORT` — `http`, `tcp`, or `serial`
+- `MESHTASTIC_HOST` — host for http/tcp (`host:port` allowed)
+- `MESHTASTIC_PORT` — override port
+- `MESHTASTIC_TLS` — `true` for HTTPS (http only)
+- `MESHTASTIC_SERIAL` — serial device path
 
-See [docs/meshtastic.md](./docs/meshtastic.md) for full configuration reference.
+See [docs/meshtastic.md](./docs/meshtastic.md) for the full configuration reference.
 
 ## Development
 
 ```bash
 npm install
 npm test
+npm run typecheck
 npm run build
 ```
 
@@ -101,6 +140,5 @@ npm run sync-manifest
 
 ## License boundary
 
-Plugin scaffolding: MIT. This plugin depends on `@meshtastic/core` and
-`@meshtastic/transport-http`, which are **GPL-3.0-only**. Review GPL obligations
-before redistribution.
+Plugin scaffolding: MIT. This plugin depends on `@meshtastic/core` and official transport
+packages, which are **GPL-3.0-only**. Review GPL obligations before redistribution.

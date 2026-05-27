@@ -47,10 +47,10 @@ import type { CoreConfig, MeshtasticProbe } from "./types.js";
 const meta = {
   id: "meshtastic",
   label: "Meshtastic",
-  selectionLabel: "Meshtastic (HTTP API)",
+  selectionLabel: "Meshtastic (HTTP / TCP / Serial)",
   docsPath: "/channels/meshtastic",
   docsLabel: "meshtastic",
-  blurb: "LoRa mesh messaging via Meshtastic node HTTP API.",
+  blurb: "LoRa mesh messaging via Meshtastic protobuf (HTTP, TCP, or USB serial).",
   order: 68,
   detailLabel: "Meshtastic",
   systemImage: "antenna.radiowaves.left.and.right",

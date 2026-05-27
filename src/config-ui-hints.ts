@@ -3,19 +3,31 @@ import type { ChannelConfigUiHint } from "openclaw/plugin-sdk/core";
 export const meshtasticChannelConfigUiHints = {
   "": {
     label: "Meshtastic",
-    help: "Meshtastic mesh channel via the node HTTP API (port 4433 by default). Connect OpenClaw to a Meshtastic device exposing /api/v1/fromradio and /api/v1/toradio.",
+    help: "Meshtastic mesh channel via official protobuf transports: HTTP API (4433), native TCP (4403, e.g. go-meshtastic-serial2tcp), or USB serial.",
+  },
+  transport: {
+    label: "Meshtastic Transport",
+    help: 'Connection mode: "http" (node HTTP API), "tcp" (protobuf stream, port 4403), or "serial" (local USB).',
   },
   host: {
     label: "Meshtastic Host",
-    help: "Hostname or IP of the Meshtastic node running the HTTP API. Optional port suffix (host:4433) is supported.",
+    help: "Hostname or IP for http/tcp. Optional port suffix (host:4433 or host:4403) is supported.",
   },
   port: {
     label: "Meshtastic Port",
-    help: "HTTP API port (default 4433). Ignored when host includes a port.",
+    help: "Port for the selected transport (default 4433 for http, 4403 for tcp). Ignored when host includes a port.",
   },
   tls: {
     label: "Meshtastic TLS",
-    help: "Use HTTPS for the Meshtastic HTTP API (default false).",
+    help: "Use HTTPS for transport=http only (default false).",
+  },
+  serialPath: {
+    label: "Meshtastic Serial Path",
+    help: 'Device path for transport=serial (e.g. /dev/ttyUSB0 or /dev/cu.usbserial-0001).',
+  },
+  baudRate: {
+    label: "Meshtastic Baud Rate",
+    help: "Serial baud rate for transport=serial (default 115200).",
   },
   channels: {
     label: "Meshtastic Mesh Channels",

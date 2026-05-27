@@ -22,5 +22,6 @@ SOFTWARE.
 
 ---
 
-This plugin depends on @meshtastic/core and @meshtastic/transport-http, which are
-GPL-3.0-only. Review GPL obligations before redistribution.
+This plugin depends on @meshtastic/core and official Meshtastic transport packages
+(@meshtastic/transport-http, @meshtastic/transport-node, @meshtastic/transport-node-serial),
+which are GPL-3.0-only. Review GPL obligations before redistribution.

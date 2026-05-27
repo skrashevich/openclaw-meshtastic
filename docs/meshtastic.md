@@ -1,16 +1,16 @@
 ---
-summary: "Meshtastic mesh channel via node HTTP API"
+summary: "Meshtastic mesh channel via official protobuf transports"
 read_when:
   - You want OpenClaw on a Meshtastic LoRa mesh network
-  - You are configuring a Meshtastic node HTTP API connection
+  - You are configuring HTTP, TCP, or serial access to a Meshtastic node
 title: "Meshtastic"
 ---
 
 **Status:** External official plugin (install via `openclaw plugins install`).
 
-Meshtastic is a LoRa mesh networking platform. This plugin connects OpenClaw to a
-Meshtastic device that exposes the HTTP API (`/api/v1/fromradio`, `/api/v1/toradio`)
-using `@meshtastic/transport-http`.
+Meshtastic is a LoRa mesh networking platform. This plugin connects OpenClaw using the
+official Meshtastic JavaScript stack (`@meshtastic/core` + transports), which speaks the
+same **protobuf** protocol as the Python CLI and Android app — not a custom wire format.
 
 ## Install
 
@@ -29,41 +29,83 @@ Restart the Gateway after installing or enabling plugins.
 
 ## GPL dependency note
 
-This plugin depends on `@meshtastic/core` and `@meshtastic/transport-http`, which are
+This plugin depends on `@meshtastic/core` and official transport packages, which are
 **GPL-3.0-only**. The plugin package isolates that dependency; review GPL obligations
 before redistribution.
 
-## Quick setup
+## Transport modes
 
-1. Enable the HTTP API on your Meshtastic node (default port **4433**).
-2. Add config:
+| `transport` | Package | Typical use |
+| ----------- | ------- | ----------- |
+| `http` (default) | `@meshtastic/transport-http` | Node firmware HTTP API on port **4433** |
+| `tcp` | `@meshtastic/transport-node` | Native protobuf TCP on port **4403** (firmware Wi‑Fi, or [go-meshtastic-serial2tcp](https://github.com/skrashevich/go-meshtastic-serial2tcp)) |
+| `serial` | `@meshtastic/transport-node-serial` | USB serial on the Gateway host (`/dev/ttyUSB0`, etc.) |
+
+All modes use `@meshtastic/core` `MeshDevice` with the shared Meshtastic protobuf definitions.
+
+### HTTP (`transport: "http"`)
+
+Enable the HTTP API on your Meshtastic node (default port **4433**).
 
 ```json5
 {
   channels: {
     meshtastic: {
       enabled: true,
+      transport: "http",
       host: "192.168.1.10",
-      tls: false,
       port: 4433,
-      dmPolicy: "pairing",
-      groupPolicy: "allowlist",
-      channels: [0],
-      groups: {
-        "channel:0": { requireMention: false },
-      },
+      tls: false,
     },
   },
 }
 ```
 
-3. Restart the Gateway.
+### TCP (`transport: "tcp"`)
 
-Environment variables (default account):
+Use when the radio exposes Meshtastic’s **native TCP protobuf** endpoint (port **4403**),
+including bridges such as [go-meshtastic-serial2tcp](https://github.com/skrashevich/go-meshtastic-serial2tcp)
+that forward a USB serial device to TCP.
 
-- `MESHTASTIC_HOST` — node host or `host:port`
-- `MESHTASTIC_PORT` — HTTP API port (default 4433)
-- `MESHTASTIC_TLS` — set to `true` for HTTPS
+```json5
+{
+  channels: {
+    meshtastic: {
+      enabled: true,
+      transport: "tcp",
+      host: "127.0.0.1",
+      port: 4403,
+    },
+  },
+}
+```
+
+### Serial (`transport: "serial"`)
+
+Connect the Gateway machine directly to the radio over USB serial.
+
+```json5
+{
+  channels: {
+    meshtastic: {
+      enabled: true,
+      transport: "serial",
+      serialPath: "/dev/ttyUSB0",
+      baudRate: 115200,
+    },
+  },
+}
+```
+
+## Environment variables (default account)
+
+| Variable | Description |
+| -------- | ----------- |
+| `MESHTASTIC_TRANSPORT` | `http`, `tcp`, or `serial` |
+| `MESHTASTIC_HOST` | Host for http/tcp (`host:port` suffix allowed) |
+| `MESHTASTIC_PORT` | Override port |
+| `MESHTASTIC_TLS` | `true` for HTTPS (http only) |
+| `MESHTASTIC_SERIAL` | Serial device path (`transport=serial`) |
 
 ## Target grammar
 
@@ -122,33 +164,38 @@ agent replies into chunks (`textChunkLimit`, default 200).
 
 ## Probe and status
 
-`openclaw channels status --probe` checks HTTP reachability via `/api/v1/toradio` OPTIONS
-and a short `@meshtastic/transport-http` connect.
+`openclaw channels status --probe` checks reachability for the configured transport:
+
+- **http**: `/api/v1/toradio` OPTIONS + short `@meshtastic/transport-http` connect
+- **tcp**: `@meshtastic/transport-node` connect to `host:4403`
+- **serial**: `@meshtastic/transport-node-serial` open on `serialPath`
 
 ## Troubleshooting
 
 ### Probe fails / no inbound messages
 
-1. Verify the node HTTP API is enabled and reachable on the configured host/port.
-2. Confirm `tls` matches the node (most LAN setups use plain HTTP on 4433).
-3. Check firewall rules between the Gateway host and the node.
+1. Confirm `transport` matches how the device is exposed (HTTP vs TCP vs serial).
+2. For **tcp**, verify port **4403** and that a serial2tcp bridge is running if used.
+3. For **http**, confirm the node HTTP API is enabled and `tls` matches the node.
+4. For **serial**, check device permissions and the correct `/dev/*` path.
 
-### HTTP vs TCP confusion
+### HTTP vs TCP
 
-This plugin uses the **HTTP API** on port 4433. Meshtastic TCP transport is not used in v1.
+- **HTTP** (`4433`): request/response API wrapping protobuf (`/api/v1/fromradio`, `/api/v1/toradio`).
+- **TCP** (`4403`): continuous protobuf stream — same as Meshtastic Python `TCPInterface`.
 
-### Live verify gaps
-
-Mesh latency, multi-hop routing, TLS with self-signed certificates, and ack timing are
-environment-dependent and are best verified on real hardware outside CI.
+This plugin supports both via official transports; you are not limited to a single HTTP wrapper.
 
 ## Configuration reference
 
 | Key              | Type     | Default       | Description                            |
 | ---------------- | -------- | ------------- | -------------------------------------- |
-| `host`           | string   | required      | Meshtastic node host/IP                |
-| `port`           | number   | `4433`        | HTTP API port                          |
-| `tls`            | boolean  | `false`       | Use HTTPS                              |
+| `transport`      | string   | `"http"`      | `http`, `tcp`, or `serial`             |
+| `host`           | string   | required*     | Host for http/tcp                      |
+| `port`           | number   | transport dep.| 4433 (http) or 4403 (tcp)              |
+| `tls`            | boolean  | `false`       | HTTPS for `transport=http` only        |
+| `serialPath`     | string   | required*     | Device path for `transport=serial`     |
+| `baudRate`       | number   | `115200`      | Serial baud rate                       |
 | `enabled`        | boolean  | `true`        | Enable channel                         |
 | `channels`       | number[] | `[0]`         | Mesh channel indices to listen (0-7)   |
 | `dmPolicy`       | string   | `"pairing"`   | DM access policy                       |
@@ -158,5 +205,7 @@ environment-dependent and are best verified on real hardware outside CI.
 | `groups`         | object   | `{}`          | Per-channel policy (`channel:0`, etc.) |
 | `textChunkLimit` | number   | `200`         | Outbound chunk size                    |
 | `defaultTo`      | string   | —             | Default outbound target                |
+
+\* `host` for http/tcp; `serialPath` for serial.
 
 Multi-account scaffolding uses `channels.meshtastic.accounts` like other channels.

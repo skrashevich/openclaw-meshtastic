@@ -54,6 +54,27 @@ describe("meshtastic config schema", () => {
     expect(config.dmPolicy).toBe("open");
   });
 
+  it("accepts tcp and serial transport options", () => {
+    const tcp = expectValidConfig(
+      MeshtasticConfigSchema.safeParse({
+        transport: "tcp",
+        host: "127.0.0.1",
+        port: 4403,
+      }),
+    );
+    expect(tcp.transport).toBe("tcp");
+
+    const serial = expectValidConfig(
+      MeshtasticConfigSchema.safeParse({
+        transport: "serial",
+        serialPath: "/dev/ttyUSB0",
+        baudRate: 115200,
+      }),
+    );
+    expect(serial.transport).toBe("serial");
+    expect(serial.serialPath).toBe("/dev/ttyUSB0");
+  });
+
   it("accepts numeric allowFrom entries", () => {
     const parsed = MeshtasticConfigSchema.parse({
       dmPolicy: "allowlist",

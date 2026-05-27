@@ -20,12 +20,21 @@ export type MeshtasticGroupConfig = {
   systemPrompt?: string;
 };
 
+import type { MeshtasticTransport } from "./transport.js";
+
+export type { MeshtasticTransport };
+
 export type MeshtasticAccountConfig = {
   name?: string;
   enabled?: boolean;
+  /** Connection mode: HTTP API, native TCP protobuf (port 4403), or USB serial. */
+  transport?: MeshtasticTransport;
   host?: string;
   port?: number;
   tls?: boolean;
+  /** Device path for transport=serial (e.g. /dev/ttyUSB0). */
+  serialPath?: string;
+  baudRate?: number;
   dmPolicy?: DmPolicy;
   allowFrom?: Array<string | number>;
   defaultTo?: string;
@@ -71,9 +80,11 @@ export type MeshtasticInboundMessage = {
 };
 
 export type MeshtasticProbe = BaseProbeResult<string> & {
+  transport: MeshtasticTransport;
   host: string;
   port: number;
   tls: boolean;
+  serialPath?: string;
   latencyMs?: number;
 };
 

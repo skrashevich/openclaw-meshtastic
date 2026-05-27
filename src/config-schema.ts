@@ -22,13 +22,18 @@ const MeshtasticGroupSchema = z
   })
   .strict();
 
+const MeshtasticTransportSchema = z.enum(["http", "tcp", "serial"]);
+
 const MeshtasticAccountSchemaBase = z
   .object({
     name: z.string().optional(),
     enabled: z.boolean().optional(),
+    transport: MeshtasticTransportSchema.optional(),
     host: z.string().optional(),
     port: z.number().int().min(1).max(65535).optional(),
     tls: z.boolean().optional(),
+    serialPath: z.string().optional(),
+    baudRate: z.number().int().min(9600).max(921600).optional(),
     dmPolicy: DmPolicySchema.optional().default("pairing"),
     allowFrom: z.array(z.union([z.string(), z.number()])).optional(),
     defaultTo: z.string().optional(),

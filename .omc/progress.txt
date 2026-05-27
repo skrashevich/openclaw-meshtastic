@@ -1,0 +1,9 @@
+# Meshtastic protobuf transports — progress
+
+## 2026-05-27
+
+- Added `transport` config: http | tcp | serial (default http).
+- Wired `@meshtastic/transport-node` (TCP 4403) and `@meshtastic/transport-node-serial`.
+- HTTP path still uses `@meshtastic/transport-http` with protobuf Accept on fromradio.
+- Env: MESHTASTIC_TRANSPORT, MESHTASTIC_SERIAL.
+- Tests: transport.test.ts, accounts.test.ts, config-schema tcp/serial.

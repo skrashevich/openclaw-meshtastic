@@ -1,5 +1,6 @@
 import { MeshDevice, Types } from "@meshtastic/core";
 import { TransportHTTP } from "@meshtastic/transport-http";
+import type { MeshtasticTransport } from "./transport.js";
 
 export type MeshtasticDeviceHandle = {
   accountId: string;
@@ -68,20 +69,50 @@ function installHttpTransportBackpressure(
   };
 }
 
-export async function connectMeshtasticDevice(params: {
-  accountId: string;
+async function createMeshtasticTransport(params: {
+  transport: MeshtasticTransport;
   host: string;
   port: number;
   tls: boolean;
+  serialPath: string;
+  baudRate: number;
+}): Promise<Types.Transport> {
+  switch (params.transport) {
+    case "tcp": {
+      const { TransportNode } = await import("@meshtastic/transport-node");
+      return await TransportNode.create(params.host, params.port);
+    }
+    case "serial": {
+      if (!params.serialPath) {
+        throw new Error("Meshtastic serial transport requires serialPath");
+      }
+      const { TransportNodeSerial } = await import("@meshtastic/transport-node-serial");
+      return await TransportNodeSerial.create(params.serialPath, params.baudRate);
+    }
+    default: {
+      const address = buildMeshtasticTransportAddress(params.host, params.port);
+      const httpTransport = await TransportHTTP.create(address, params.tls);
+      installHttpTransportBackpressure(httpTransport);
+      return httpTransport;
+    }
+  }
+}
+
+export async function connectMeshtasticDevice(params: {
+  accountId: string;
+  transport: MeshtasticTransport;
+  host: string;
+  port: number;
+  tls: boolean;
+  serialPath: string;
+  baudRate: number;
 }): Promise<MeshtasticDeviceHandle> {
   const existing = devices.get(params.accountId);
   if (existing) {
     await disconnectMeshtasticDevice(params.accountId);
   }
 
-  const address = buildMeshtasticTransportAddress(params.host, params.port);
-  const transport = await TransportHTTP.create(address, params.tls);
-  installHttpTransportBackpressure(transport);
+  const transport = await createMeshtasticTransport(params);
   const device = new MeshDevice(transport);
   const handle: MeshtasticDeviceHandle = {
     accountId: params.accountId,
@@ -95,9 +126,13 @@ export async function connectMeshtasticDevice(params: {
     }
   });
 
-  // HTTP transport starts receiving immediately; configure() waits up to ~60s for
-  // routing ACKs that often never arrive over HTTP, which blocks inbound subscribe.
-  void device.configure().catch(() => undefined);
+  if (params.transport === "http") {
+    // HTTP transport starts receiving immediately; configure() waits up to ~60s for
+    // routing ACKs that often never arrive over HTTP, which blocks inbound subscribe.
+    void device.configure().catch(() => undefined);
+  } else {
+    await device.configure();
+  }
   device.setHeartbeatInterval(30_000);
 
   devices.set(params.accountId, handle);

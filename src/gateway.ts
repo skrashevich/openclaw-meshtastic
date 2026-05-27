@@ -3,6 +3,7 @@ import type { ChannelAccountSnapshot } from "openclaw/plugin-sdk/status-helpers"
 import type { ResolvedMeshtasticAccount } from "./accounts.js";
 import { createAccountStatusSink } from "./channel-api.js";
 import { monitorMeshtasticProvider } from "./monitor.js";
+import { formatMeshtasticEndpoint } from "./transport.js";
 import type { RuntimeEnv } from "./runtime-api.js";
 import type { CoreConfig } from "./types.js";
 
@@ -24,11 +25,13 @@ export async function startMeshtasticGatewayAccount(ctx: {
   });
   if (!account.configured) {
     throw new Error(
-      `Meshtastic is not configured for account "${account.accountId}" (need host in channels.meshtastic).`,
+      account.transport === "serial"
+        ? `Meshtastic is not configured for account "${account.accountId}" (need serialPath in channels.meshtastic).`
+        : `Meshtastic is not configured for account "${account.accountId}" (need host in channels.meshtastic).`,
     );
   }
   ctx.log?.info?.(
-    `[${account.accountId}] starting Meshtastic provider (${account.tls ? "https" : "http"}://${account.host}:${account.port})`,
+    `[${account.accountId}] starting Meshtastic provider (${account.transport}) at ${formatMeshtasticEndpoint(account)}`,
   );
   await runStoppablePassiveMonitor({
     abortSignal: ctx.abortSignal,

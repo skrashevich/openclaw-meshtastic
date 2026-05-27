@@ -17,6 +17,7 @@ import {
   normalizeMeshtasticAllowEntry,
   normalizeMeshtasticMessagingTarget,
 } from "./normalize.js";
+import { formatMeshtasticEndpoint } from "./transport.js";
 import {
   meshtasticSetupAdapter,
   parsePort,
@@ -59,9 +60,10 @@ export const meshtasticSetupWizard: ChannelSetupWizard = {
   status: createStandardChannelSetupStatus({
     channelLabel: "Meshtastic",
     configuredLabel: t("wizard.channels.statusConfigured"),
-    unconfiguredLabel: "Needs host",
+    unconfiguredLabel: "Needs connection",
     configuredHint: t("wizard.channels.statusConfigured"),
-    unconfiguredHint: "Set channels.meshtastic.host to the node HTTP API address.",
+    unconfiguredHint:
+      "Set channels.meshtastic.host (http/tcp) or serialPath (serial) for the Meshtastic device.",
     configuredScore: 1,
     unconfiguredScore: 0,
     includeStatusLine: true,
@@ -72,13 +74,13 @@ export const meshtasticSetupWizard: ChannelSetupWizard = {
       if (!account.configured) {
         return [];
       }
-      return [`HTTP API: ${account.tls ? "https" : "http"}://${account.host}:${account.port}`];
+      return [`${account.transport}: ${formatMeshtasticEndpoint(account)}`];
     },
   }),
   introNote: {
     title: "Meshtastic setup",
     lines: [
-      "Connect to a Meshtastic node exposing the HTTP API (default port 4433).",
+      "Connect via HTTP API (4433), native TCP protobuf (4403, e.g. serial2tcp), or USB serial.",
       `Docs: ${formatDocsLink("/channels/meshtastic", "channels/meshtastic")}`,
     ],
   },
