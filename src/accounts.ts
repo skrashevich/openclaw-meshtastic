@@ -81,7 +81,7 @@ function resolveTransport(
   if (accountId === DEFAULT_ACCOUNT_ID && process.env.MESHTASTIC_SERIAL?.trim()) {
     return "serial";
   }
-  return "http";
+  return "tcp";
 }
 
 const {

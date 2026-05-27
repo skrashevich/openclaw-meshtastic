@@ -11,7 +11,7 @@ export function normalizeMeshtasticTransport(raw?: string): MeshtasticTransport 
   if (value === "tcp" || value === "serial") {
     return value;
   }
-  return "http";
+  return "tcp";
 }
 
 export function defaultPortForTransport(transport: MeshtasticTransport): number {

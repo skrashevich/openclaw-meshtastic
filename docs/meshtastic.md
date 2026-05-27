@@ -55,8 +55,8 @@ before redistribution.
 
 | `transport` | Package | Typical use |
 | ----------- | ------- | ----------- |
-| `http` (default) | `@meshtastic/transport-http` | Node firmware HTTP API on port **4433** |
-| `tcp` | `@meshtastic/transport-node` | Native protobuf TCP on port **4403** (firmware Wi‑Fi, or [go-meshtastic-serial2tcp](https://github.com/skrashevich/go-meshtastic-serial2tcp)) |
+| `tcp` (default) | `@meshtastic/transport-node` | Native protobuf TCP on port **4403** (firmware Wi‑Fi, or [go-meshtastic-serial2tcp](https://github.com/skrashevich/go-meshtastic-serial2tcp)) |
+| `http` | `@meshtastic/transport-http` | Node firmware HTTP API on port **4433** |
 | `serial` | `@meshtastic/transport-node-serial` | USB serial on the Gateway host (`/dev/ttyUSB0`, etc.) |
 
 All modes use `@meshtastic/core` `MeshDevice` with the shared Meshtastic protobuf definitions.
@@ -271,7 +271,7 @@ This plugin supports both via official transports; you are not limited to a sing
 
 | Key              | Type     | Default       | Description                            |
 | ---------------- | -------- | ------------- | -------------------------------------- |
-| `transport`      | string   | `"http"`      | `http`, `tcp`, or `serial`             |
+| `transport`      | string   | `"tcp"`       | `http`, `tcp`, or `serial`             |
 | `host`           | string   | required*     | Host for http/tcp                      |
 | `port`           | number   | transport dep.| 4433 (http) or 4403 (tcp)              |
 | `tls`            | boolean  | `false`       | HTTPS for `transport=http` only        |

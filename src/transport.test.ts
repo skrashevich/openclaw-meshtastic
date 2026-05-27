@@ -9,8 +9,8 @@ describe("meshtastic transport helpers", () => {
   it("normalizes transport names", () => {
     expect(normalizeMeshtasticTransport("TCP")).toBe("tcp");
     expect(normalizeMeshtasticTransport("serial")).toBe("serial");
-    expect(normalizeMeshtasticTransport(undefined)).toBe("http");
-    expect(normalizeMeshtasticTransport("ble")).toBe("http");
+    expect(normalizeMeshtasticTransport(undefined)).toBe("tcp");
+    expect(normalizeMeshtasticTransport("ble")).toBe("tcp");
   });
 
   it("picks default ports per transport", () => {

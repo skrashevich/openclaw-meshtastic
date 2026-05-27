@@ -3,7 +3,7 @@ import { resolveMeshtasticAccount } from "./accounts.js";
 import type { CoreConfig } from "./types.js";
 
 describe("resolveMeshtasticAccount transport", () => {
-  it("defaults to http with port 4433", () => {
+  it("defaults to tcp with port 4403", () => {
     const account = resolveMeshtasticAccount({
       cfg: {
         channels: {
@@ -13,8 +13,8 @@ describe("resolveMeshtasticAccount transport", () => {
         },
       } as CoreConfig,
     });
-    expect(account.transport).toBe("http");
-    expect(account.port).toBe(4433);
+    expect(account.transport).toBe("tcp");
+    expect(account.port).toBe(4403);
     expect(account.configured).toBe(true);
   });
 

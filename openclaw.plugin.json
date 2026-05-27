@@ -32,6 +32,7 @@
           },
           "transport": {
             "type": "string",
+            "default": "tcp",
             "enum": [
               "http",
               "tcp",
@@ -322,6 +323,7 @@
                 },
                 "transport": {
                   "type": "string",
+                  "default": "tcp",
                   "enum": [
                     "http",
                     "tcp",

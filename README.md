@@ -8,8 +8,8 @@ Connects OpenClaw to a Meshtastic device via `@meshtastic/core` and official tra
 
 | Transport | When to use |
 | --------- | ----------- |
-| **http** (default) | Node firmware HTTP API (`/api/v1/fromradio`, `/api/v1/toradio`, port 4433) |
-| **tcp** | Native protobuf TCP (port 4403) — firmware Wi‑Fi or [go-meshtastic-serial2tcp](https://github.com/skrashevich/go-meshtastic-serial2tcp) |
+| **tcp** (default) | Native protobuf TCP (port 4403) — firmware Wi‑Fi or [go-meshtastic-serial2tcp](https://github.com/skrashevich/go-meshtastic-serial2tcp) |
+| **http** | Node firmware HTTP API (`/api/v1/fromradio`, `/api/v1/toradio`, port 4433) |
 | **serial** | USB serial on the Gateway host |
 
 Supported:
