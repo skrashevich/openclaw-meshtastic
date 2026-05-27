@@ -58,6 +58,32 @@ describe("sendMessageMeshtastic", () => {
     expect(result.target).toBe("channel:3");
   });
 
+  it("uses the packet queued by sendText when ACK does not resolve", async () => {
+    const queued: Array<{ id: number; added: Date }> = [];
+    const sendText = vi.fn(() => {
+      queued.push({ id: 88, added: new Date() });
+      return new Promise<number>(() => undefined);
+    });
+    const handle = {
+      accountId: "default",
+      myNodeNum: 123,
+      device: {
+        sendText,
+        queue: {
+          getState: () => queued,
+        },
+      },
+    };
+    getMeshtasticDeviceMock.mockReturnValue(handle);
+
+    const result = await sendMessageMeshtastic("channel:3", "queued mesh", {
+      cfg: createConfig(),
+      ackWaitMs: 1,
+    });
+
+    expect(result.messageId).toBe("88");
+  });
+
   it("uses the ACK packet id when Meshtastic resolves quickly", async () => {
     const sendText = vi.fn(async () => 99);
     const handle = {
@@ -80,6 +106,36 @@ describe("sendMessageMeshtastic", () => {
     expect(sendText).toHaveBeenCalledWith("hello dm", 2, true, undefined, undefined);
     expect(result.messageId).toBe("99");
     expect(result.target).toBe("!00000002");
+  });
+
+  it("does not split surrogate pairs when chunking text", async () => {
+    const sendText = vi.fn(async () => 101);
+    const handle = {
+      accountId: "default",
+      myNodeNum: 123,
+      device: {
+        sendText,
+        queue: {
+          getState: () => [{ id: 101, added: new Date() }],
+        },
+      },
+    };
+    getMeshtasticDeviceMock.mockReturnValue(handle);
+
+    await sendMessageMeshtastic("channel:3", "😀😀😀", {
+      cfg: {
+        channels: {
+          meshtastic: {
+            host: "192.168.1.10",
+            textChunkLimit: 2,
+          },
+        },
+      } as CoreConfig,
+      ackWaitMs: 50,
+    });
+
+    expect(sendText).toHaveBeenNthCalledWith(1, "😀😀", "broadcast", true, 3, undefined);
+    expect(sendText).toHaveBeenNthCalledWith(2, "😀", "broadcast", true, 3, undefined);
   });
 
   it("marks outbound text before sendText can emit a local echo", async () => {

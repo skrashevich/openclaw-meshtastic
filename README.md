@@ -17,7 +17,7 @@ Supported:
 
 ## Requirements
 
-- OpenClaw **>= 2026.5.22**
+- OpenClaw **>= 2026.5.26**
 - A Meshtastic node with the HTTP API enabled
 
 ## Install

@@ -89,7 +89,7 @@ export async function connectMeshtasticDevice(params: {
     myNodeNum: null,
   };
 
-  device.events.onMyNodeInfo.subscribe((info) => {
+  device.events.onMyNodeInfo.subscribe((info: { myNodeNum?: number }) => {
     if (typeof info.myNodeNum === "number") {
       handle.myNodeNum = info.myNodeNum;
     }

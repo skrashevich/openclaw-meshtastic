@@ -38,8 +38,8 @@ const MeshtasticAccountSchemaBase = z
     channels: z.array(z.number().int().min(0).max(7)).optional(),
     mentionPatterns: z.array(z.string()).optional(),
     markdown: MarkdownConfigSchema,
-    textChunkLimit: z.number().int().min(40).max(500).optional(),
     ...ReplyRuntimeConfigSchemaShape,
+    textChunkLimit: z.number().int().min(40).max(500).optional(),
   })
   .strict();
 

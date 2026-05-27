@@ -77,4 +77,4 @@ export type MeshtasticProbe = BaseProbeResult<string> & {
   latencyMs?: number;
 };
 
-export type { MeshtasticAccountConfig, MeshtasticConfig };
+export type { MeshtasticConfig };

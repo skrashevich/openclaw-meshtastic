@@ -6,7 +6,9 @@ import {
   createSetupTranslator,
   createStandardChannelSetupStatus,
   formatDocsLink,
+  mergeAllowFromEntries,
   setSetupChannelEnabled,
+  splitSetupEntries,
 } from "openclaw/plugin-sdk/setup";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { resolveDefaultMeshtasticAccountId, resolveMeshtasticAccount } from "./accounts.js";
@@ -18,8 +20,6 @@ import {
 import {
   meshtasticSetupAdapter,
   parsePort,
-  setMeshtasticAllowFrom,
-  setMeshtasticDmPolicy,
   setMeshtasticGroupAccess,
   updateMeshtasticAccountConfig,
 } from "./setup-core.js";
@@ -39,6 +39,19 @@ function normalizeGroupEntry(raw: string): string | null {
   return normalizeMeshtasticMessagingTarget(trimmed) ?? trimmed;
 }
 
+function resolveMeshtasticConfigKeys(accountId?: string): { policyKey: string; allowFromKey: string } {
+  if (accountId && accountId !== DEFAULT_ACCOUNT_ID) {
+    return {
+      policyKey: `channels.meshtastic.accounts.${accountId}.dmPolicy`,
+      allowFromKey: `channels.meshtastic.accounts.${accountId}.allowFrom`,
+    };
+  }
+  return {
+    policyKey: "channels.meshtastic.dmPolicy",
+    allowFromKey: "channels.meshtastic.allowFrom",
+  };
+}
+
 export { meshtasticSetupAdapter };
 
 export const meshtasticSetupWizard: ChannelSetupWizard = {
@@ -52,9 +65,10 @@ export const meshtasticSetupWizard: ChannelSetupWizard = {
     configuredScore: 1,
     unconfiguredScore: 0,
     includeStatusLine: true,
-    resolveConfigured: ({ cfg }) => resolveMeshtasticAccount({ cfg: cfg as CoreConfig }).configured,
-    resolveExtraStatusLines: ({ cfg }) => {
-      const account = resolveMeshtasticAccount({ cfg: cfg as CoreConfig });
+    resolveConfigured: ({ cfg, accountId }) =>
+      resolveMeshtasticAccount({ cfg: cfg as CoreConfig, accountId }).configured,
+    resolveExtraStatusLines: ({ cfg, accountId }) => {
+      const account = resolveMeshtasticAccount({ cfg: cfg as CoreConfig, accountId });
       if (!account.configured) {
         return [];
       }
@@ -68,7 +82,8 @@ export const meshtasticSetupWizard: ChannelSetupWizard = {
       `Docs: ${formatDocsLink("/channels/meshtastic", "channels/meshtastic")}`,
     ],
   },
-  run: async ({ cfg, prompter, accountId, allowFromSection }) => {
+  credentials: [],
+  finalize: async ({ cfg, prompter, accountId }) => {
     const resolvedAccountId = accountId ?? resolveDefaultMeshtasticAccountId(cfg as CoreConfig);
     const account = resolveMeshtasticAccount({
       cfg: cfg as CoreConfig,
@@ -79,6 +94,7 @@ export const meshtasticSetupWizard: ChannelSetupWizard = {
       await prompter.text({
         message: "Meshtastic node host or IP",
         initialValue: account.host || process.env.MESHTASTIC_HOST || "",
+        validate: (value: string) => (normalizeOptionalString(value) ? undefined : "Required"),
       }),
     );
     const portRaw = await prompter.text({
@@ -95,76 +111,76 @@ export const meshtasticSetupWizard: ChannelSetupWizard = {
     });
     const channels = channelsRaw
       .split(/[,;\s]+/)
-      .map((entry) => Number.parseInt(entry.trim(), 10))
-      .filter((value) => Number.isFinite(value) && value >= 0 && value <= 7);
+      .map((entry: string) => Number.parseInt(entry.trim(), 10))
+      .filter((value: number) => Number.isFinite(value) && value >= 0 && value <= 7);
 
-    let next = updateMeshtasticAccountConfig(cfg as CoreConfig, resolvedAccountId, {
-      host,
-      port: parsePort(String(portRaw), 4433),
-      tls,
-      channels: channels.length ? channels : [0],
-    });
-    next = setSetupChannelEnabled(next, channel, true) as CoreConfig;
+    const next = setSetupChannelEnabled(
+      updateMeshtasticAccountConfig(cfg as CoreConfig, resolvedAccountId, {
+        host,
+        port: parsePort(String(portRaw), 4433),
+        tls,
+        channels: channels.length ? channels : [0],
+      }),
+      channel,
+      true,
+    ) as CoreConfig;
 
-    const dmPolicy = await prompter.select({
-      message: "Direct message policy",
-      options: [
-        { label: "Pairing (recommended)", value: "pairing" },
-        { label: "Allowlist", value: "allowlist" },
-        { label: "Open", value: "open" },
-        { label: "Disabled", value: "disabled" },
-      ],
-      initialValue: account.config.dmPolicy ?? "pairing",
-    });
-    next = setMeshtasticDmPolicy(next, dmPolicy);
-
-    if (allowFromSection !== false) {
-      const allowFrom = await createAllowFromSection({
-        prompter,
-        initialEntries: account.config.allowFrom?.map(String) ?? [],
-        prompt: createPromptParsedAllowFromForAccount({
-          channel,
-          accountId: resolvedAccountId,
-          normalizeEntry: normalizeMeshtasticAllowEntry,
-        }),
-      });
-      next = setMeshtasticAllowFrom(next, allowFrom);
-    }
-
-    const groupPolicy = await prompter.select({
-      message: "Broadcast channel policy",
-      options: [
-        { label: "Allowlist (recommended)", value: "allowlist" },
-        { label: "Open", value: "open" },
-        { label: "Disabled", value: "disabled" },
-      ],
-      initialValue: account.config.groupPolicy ?? "allowlist",
-    });
-    const groupEntries =
-      groupPolicy === "allowlist"
-        ? (
-            await prompter.text({
-              message: "Allowed broadcast channels (e.g. channel:0)",
-              initialValue:
-                Object.keys(account.config.groups ?? {}).join(", ") ||
-                formatMeshtasticChannelTarget(0),
-            })
-          )
-            .split(/[,;\s]+/)
-            .map((entry) => entry.trim())
-            .filter(Boolean)
-        : [];
-    next = setMeshtasticGroupAccess(
-      next,
-      resolvedAccountId,
-      groupPolicy,
-      groupEntries,
-      normalizeGroupEntry,
-    );
-
-    return {
-      cfg: next,
-      accountId: resolvedAccountId === DEFAULT_ACCOUNT_ID ? undefined : resolvedAccountId,
-    };
+    return { cfg: next };
+  },
+  dmPolicy: {
+    label: "Meshtastic",
+    channel,
+    policyKey: "channels.meshtastic.dmPolicy",
+    allowFromKey: "channels.meshtastic.allowFrom",
+    resolveConfigKeys: (_cfg, accountId) => resolveMeshtasticConfigKeys(accountId),
+    getCurrent: (cfg, accountId) =>
+      resolveMeshtasticAccount({ cfg: cfg as CoreConfig, accountId }).config.dmPolicy ?? "pairing",
+    setPolicy: (cfg, policy, accountId) =>
+      updateMeshtasticAccountConfig(
+        cfg as CoreConfig,
+        accountId ?? resolveDefaultMeshtasticAccountId(cfg as CoreConfig),
+        { dmPolicy: policy },
+      ),
+    promptAllowFrom: createPromptParsedAllowFromForAccount({
+      defaultAccountId: resolveDefaultMeshtasticAccountId,
+      message: "Allowed Meshtastic node ids",
+      placeholder: "!deef96d6, node:1234567890, *",
+      parseEntries: (raw: string) => ({
+        entries: mergeAllowFromEntries(undefined, splitSetupEntries(raw)),
+      }),
+      getExistingAllowFrom: ({ cfg, accountId }) =>
+        resolveMeshtasticAccount({ cfg: cfg as CoreConfig, accountId }).config.allowFrom ?? [],
+      applyAllowFrom: ({ cfg, accountId, allowFrom }) =>
+        updateMeshtasticAccountConfig(cfg as CoreConfig, accountId, { allowFrom }),
+    }),
+  },
+  allowFrom: createAllowFromSection({
+    message: "Allowed Meshtastic node ids",
+    placeholder: "!deef96d6, node:1234567890, *",
+    invalidWithoutCredentialNote: "Entries that are not valid Meshtastic node ids will be ignored.",
+    parseId: normalizeMeshtasticAllowEntry,
+    apply: ({ cfg, accountId, allowFrom }) =>
+      updateMeshtasticAccountConfig(cfg as CoreConfig, accountId, { allowFrom }),
+  }),
+  groupAccess: {
+    label: "Meshtastic broadcast channels",
+    placeholder: formatMeshtasticChannelTarget(0),
+    currentPolicy: ({ cfg, accountId }) =>
+      resolveMeshtasticAccount({ cfg: cfg as CoreConfig, accountId }).config.groupPolicy ??
+      "allowlist",
+    currentEntries: ({ cfg, accountId }) =>
+      Object.keys(resolveMeshtasticAccount({ cfg: cfg as CoreConfig, accountId }).config.groups ?? {}),
+    updatePrompt: () => true,
+    setPolicy: ({ cfg, accountId, policy }) =>
+      setMeshtasticGroupAccess(cfg as CoreConfig, accountId, policy, [], normalizeGroupEntry),
+    resolveAllowlist: async ({ entries }) => entries,
+    applyAllowlist: ({ cfg, accountId, resolved }) =>
+      setMeshtasticGroupAccess(
+        cfg as CoreConfig,
+        accountId,
+        "allowlist",
+        Array.isArray(resolved) ? resolved.filter((entry): entry is string => typeof entry === "string") : [],
+        normalizeGroupEntry,
+      ),
   },
 };

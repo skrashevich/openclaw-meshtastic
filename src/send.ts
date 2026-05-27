@@ -69,14 +69,13 @@ function chunkText(text: string, limit: number): string[] {
   if (!trimmed) {
     return [];
   }
-  if (trimmed.length <= limit) {
+  const chars = Array.from(trimmed);
+  if (chars.length <= limit) {
     return [trimmed];
   }
   const chunks: string[] = [];
-  let cursor = 0;
-  while (cursor < trimmed.length) {
-    chunks.push(trimmed.slice(cursor, cursor + limit));
-    cursor += limit;
+  for (let cursor = 0; cursor < chars.length; cursor += limit) {
+    chunks.push(chars.slice(cursor, cursor + limit).join(""));
   }
   return chunks;
 }
@@ -118,7 +117,7 @@ async function waitForMeshtasticSend(params: {
       params.send,
       new Promise<number>((resolve) => {
         timer = setTimeout(() => {
-          resolve(queuedPacketId ?? 0);
+          resolve(resolveLatestQueuedPacketId(params.device) ?? queuedPacketId ?? 0);
         }, params.timeoutMs ?? DEFAULT_SEND_ACK_WAIT_MS);
       }),
     ]);

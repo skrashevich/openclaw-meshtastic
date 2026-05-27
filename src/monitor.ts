@@ -35,16 +35,18 @@ function channelIndexFromPacket(channel: number): number {
   return 0;
 }
 
+type MeshtasticPacket = {
+  id: number;
+  rxTime: Date;
+  type: "broadcast" | "direct";
+  from: number;
+  to: number;
+  channel: number;
+  data: string;
+};
+
 export function buildInboundMessage(params: {
-  packet: {
-    id: number;
-    rxTime: Date;
-    type: "broadcast" | "direct";
-    from: number;
-    to: number;
-    channel: number;
-    data: string;
-  };
+  packet: MeshtasticPacket;
   myNodeNum: number | null;
 }): MeshtasticInboundMessage | null {
   const text = params.packet.data?.trim() ?? "";
@@ -121,7 +123,7 @@ export async function monitorMeshtasticProvider(
   const unsubscribers: Array<() => void> = [];
 
   unsubscribers.push(
-    handle.device.events.onMessagePacket.subscribe((packet) => {
+    handle.device.events.onMessagePacket.subscribe((packet: MeshtasticPacket) => {
       void (async () => {
         try {
           const message = buildInboundMessage({
@@ -190,7 +192,7 @@ export async function monitorMeshtasticProvider(
   );
 
   unsubscribers.push(
-    handle.device.events.onDeviceStatus.subscribe((status) => {
+    handle.device.events.onDeviceStatus.subscribe((status: unknown) => {
       if (core.logging.shouldLogVerbose()) {
         logger.debug?.(`[${account.accountId}] device status: ${String(status)}`);
       }
@@ -201,18 +203,24 @@ export async function monitorMeshtasticProvider(
     `[${account.accountId}] connected to Meshtastic HTTP API at ${account.tls ? "https" : "http"}://${account.host}:${account.port}`,
   );
 
-  const abortHandler = () => {
+  let stopped = false;
+  const cleanup = () => {
+    if (stopped) {
+      return;
+    }
+    stopped = true;
+    opts.abortSignal?.removeEventListener("abort", abortHandler);
+    for (const unsubscribe of unsubscribers) {
+      unsubscribe();
+    }
     void disconnectMeshtasticDevice(account.accountId);
+  };
+  const abortHandler = () => {
+    cleanup();
   };
   opts.abortSignal?.addEventListener("abort", abortHandler, { once: true });
 
   return {
-    stop: () => {
-      opts.abortSignal?.removeEventListener("abort", abortHandler);
-      for (const unsubscribe of unsubscribers) {
-        unsubscribe();
-      }
-      void disconnectMeshtasticDevice(account.accountId);
-    },
+    stop: cleanup,
   };
 }
