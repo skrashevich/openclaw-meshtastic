@@ -93,7 +93,7 @@ Packets arrive encrypted; the plugin decrypts them client-side (see [Encryption]
     meshtastic: {
       enabled: true,
       transport: "tcp",
-      host: "192.168.88.21",
+      host: "192.168.1.20",
       port: 4403,
     },
   },
@@ -215,8 +215,8 @@ Example group config:
       groups: {
         "channel:3": { requireMention: false },
       },
-      allowFrom: ["!deef96d6"],
-      groupAllowFrom: ["!deef96d6"],
+      allowFrom: ["!aabbccdd"],
+      groupAllowFrom: ["!aabbccdd"],
     },
   },
 }

@@ -146,7 +146,7 @@ export const meshtasticSetupWizard: ChannelSetupWizard = {
     promptAllowFrom: createPromptParsedAllowFromForAccount({
       defaultAccountId: resolveDefaultMeshtasticAccountId,
       message: "Allowed Meshtastic node ids",
-      placeholder: "!deef96d6, node:1234567890, *",
+      placeholder: "!aabbccdd, node:1234567890, *",
       parseEntries: (raw: string) => ({
         entries: mergeAllowFromEntries(undefined, splitSetupEntries(raw)),
       }),
@@ -158,7 +158,7 @@ export const meshtasticSetupWizard: ChannelSetupWizard = {
   },
   allowFrom: createAllowFromSection({
     message: "Allowed Meshtastic node ids",
-    placeholder: "!deef96d6, node:1234567890, *",
+    placeholder: "!aabbccdd, node:1234567890, *",
     invalidWithoutCredentialNote: "Entries that are not valid Meshtastic node ids will be ignored.",
     parseId: normalizeMeshtasticAllowEntry,
     apply: ({ cfg, accountId, allowFrom }) =>

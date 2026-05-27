@@ -168,7 +168,7 @@ describe("meshtastic inbound behavior", () => {
       message: createMessage({
         isGroup: true,
         target: "channel:3",
-        senderId: "!deef96d6",
+        senderId: "!aabbccdd",
         senderNodeNum: 3740243670,
         text: "И опять привет",
       }),

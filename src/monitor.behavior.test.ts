@@ -23,7 +23,7 @@ describe("buildInboundMessage", () => {
     id: 1,
     rxTime: new Date(),
     type: "broadcast" as const,
-    from: 3740243670,
+    from: 2864434397,
     to: 4294967295,
     channel: 3,
     data: "Багли, привет",
@@ -33,7 +33,7 @@ describe("buildInboundMessage", () => {
     const message = buildInboundMessage({ packet: basePacket, myNodeNum: 123 });
     expect(message).toMatchObject({
       target: "channel:3",
-      senderId: "!deef96d6",
+      senderId: "!aabbccdd",
       isGroup: true,
       meshChannel: 3,
     });
