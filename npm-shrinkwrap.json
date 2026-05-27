@@ -1,18 +1,18 @@
 {
-  "name": "@openclaw/meshtastic",
+  "name": "openclaw-meshtastic",
   "version": "2026.5.26",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
-      "name": "@openclaw/meshtastic",
+      "name": "openclaw-meshtastic",
       "version": "2026.5.26",
       "license": "MIT",
       "dependencies": {
         "@meshtastic/core": "2.6.7",
         "@meshtastic/transport-http": "0.2.5",
-        "@meshtastic/transport-node": "^0.0.2",
-        "@meshtastic/transport-node-serial": "^0.0.2",
+        "@meshtastic/transport-node": "0.0.2",
+        "@meshtastic/transport-node-serial": "0.0.2",
         "zod": "4.4.3"
       },
       "devDependencies": {

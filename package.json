@@ -1,5 +1,5 @@
 {
-  "name": "@openclaw/meshtastic",
+  "name": "openclaw-meshtastic",
   "version": "2026.5.26",
   "description": "OpenClaw Meshtastic channel plugin via official protobuf transports (HTTP, TCP, serial)",
   "repository": {
@@ -27,8 +27,6 @@
     "@meshtastic/transport-http": "0.2.5",
     "@meshtastic/transport-node": "0.0.2",
     "@meshtastic/transport-node-serial": "0.0.2",
-    "@meshtastic/transport-node": "^0.0.2",
-    "@meshtastic/transport-node-serial": "^0.0.2",
     "zod": "4.4.3"
   },
   "devDependencies": {
@@ -73,7 +71,7 @@
       ]
     },
     "install": {
-      "npmSpec": "@openclaw/meshtastic",
+      "npmSpec": "openclaw-meshtastic",
       "defaultChoice": "npm",
       "minHostVersion": ">=2026.4.10"
     },

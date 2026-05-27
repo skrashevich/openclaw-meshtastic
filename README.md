@@ -1,4 +1,4 @@
-# @openclaw/meshtastic
+# openclaw-meshtastic
 
 Standalone OpenClaw channel plugin for Meshtastic mesh networks using the **official Meshtastic protobuf stack**.
 
@@ -38,7 +38,7 @@ openclaw plugins install --link /path/to/openclaw-meshtastic
 From npm (when published):
 
 ```bash
-openclaw plugins install @openclaw/meshtastic
+openclaw plugins install openclaw-meshtastic
 ```
 
 Restart the Gateway after installing or enabling the plugin.

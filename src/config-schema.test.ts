@@ -29,6 +29,7 @@ describe("meshtastic config schema", () => {
 
     expect(config.host).toBe("192.168.1.10");
     expect(config.port).toBe(4433);
+    expect(config.transport).toBe("tcp");
     expect(config.channels).toEqual([0]);
   });
 

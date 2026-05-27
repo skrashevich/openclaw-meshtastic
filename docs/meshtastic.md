@@ -40,7 +40,7 @@ Add the plugin path to your config:
 ### From npm (when published)
 
 ```bash
-openclaw plugins install @openclaw/meshtastic
+openclaw plugins install openclaw-meshtastic
 ```
 
 Restart the Gateway after installing or enabling plugins.

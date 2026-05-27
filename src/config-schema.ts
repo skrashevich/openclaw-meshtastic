@@ -28,7 +28,7 @@ const MeshtasticAccountSchemaBase = z
   .object({
     name: z.string().optional(),
     enabled: z.boolean().optional(),
-    transport: MeshtasticTransportSchema.optional(),
+    transport: MeshtasticTransportSchema.optional().default("tcp"),
     host: z.string().optional(),
     port: z.number().int().min(1).max(65535).optional(),
     tls: z.boolean().optional(),
