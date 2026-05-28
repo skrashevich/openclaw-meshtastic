@@ -1,4 +1,5 @@
 import { resolveLoggerBackedRuntime } from "openclaw/plugin-sdk/extension-shared";
+import { Types } from "@meshtastic/core";
 import { resolveMeshtasticAccount } from "./accounts.js";
 import {
   connectMeshtasticDevice,
@@ -23,6 +24,10 @@ type MeshtasticMonitorOptions = {
     lastInboundAt?: number;
     lastOutboundAt?: number;
     lastError?: string;
+    connected?: boolean;
+    lastConnectedAt?: number;
+    lastEventAt?: number;
+    lastTransportActivityAt?: number;
   }) => void;
   onMessage?: (
     message: MeshtasticInboundMessage,
@@ -35,6 +40,12 @@ function channelIndexFromPacket(channel: number): number {
     return channel;
   }
   return 0;
+}
+
+function statusName(status: unknown): string {
+  return typeof status === "number"
+    ? (Types.DeviceStatusEnum[status] ?? String(status))
+    : String(status);
 }
 
 type MeshtasticPacket = {
@@ -124,6 +135,7 @@ export async function monitorMeshtasticProvider(
     tls: account.tls,
     serialPath: account.serialPath,
     baudRate: account.baudRate,
+    autoConfigure: false,
   });
 
   const allowedChannels = new Set(account.config.channels ?? [0]);
@@ -135,6 +147,10 @@ export async function monitorMeshtasticProvider(
 
   unsubscribers.push(
     handle.device.events.onChannelPacket.subscribe((channel: { index?: number; settings?: { psk?: Uint8Array } }) => {
+      opts.statusSink?.({
+        lastEventAt: Date.now(),
+        lastTransportActivityAt: Date.now(),
+      });
       const idx = channel.index ?? 0;
       const rawPsk = channel.settings?.psk;
       if (rawPsk && rawPsk.length > 0) {
@@ -158,6 +174,10 @@ export async function monitorMeshtasticProvider(
         rxTime: number;
         payloadVariant: { case: string; value: unknown };
       }) => {
+        opts.statusSink?.({
+          lastEventAt: Date.now(),
+          lastTransportActivityAt: Date.now(),
+        });
         if (meshPacket.payloadVariant.case !== "encrypted") {
           return; // decoded packets are handled by onMessagePacket already
         }
@@ -245,6 +265,10 @@ export async function monitorMeshtasticProvider(
 
   unsubscribers.push(
     handle.device.events.onMessagePacket.subscribe((packet: MeshtasticPacket) => {
+      opts.statusSink?.({
+        lastEventAt: Date.now(),
+        lastTransportActivityAt: Date.now(),
+      });
       void (async () => {
         try {
           const message = buildInboundMessage({
@@ -314,11 +338,38 @@ export async function monitorMeshtasticProvider(
 
   unsubscribers.push(
     handle.device.events.onDeviceStatus.subscribe((status: unknown) => {
+      const name = statusName(status);
+      const now = Date.now();
+      if (
+        status === Types.DeviceStatusEnum.DeviceConnected ||
+        status === Types.DeviceStatusEnum.DeviceConfigured ||
+        name.includes("DeviceConnected") ||
+        name.includes("DeviceConfigured")
+      ) {
+        opts.statusSink?.({
+          connected: true,
+          lastConnectedAt: now,
+          lastEventAt: now,
+          lastTransportActivityAt: now,
+        });
+      } else if (
+        status === Types.DeviceStatusEnum.DeviceDisconnected ||
+        name.includes("DeviceDisconnected") ||
+        name.toLowerCase().includes("disconnect")
+      ) {
+        opts.statusSink?.({
+          connected: false,
+          lastEventAt: now,
+          lastTransportActivityAt: now,
+        });
+      }
       if (core.logging.shouldLogVerbose()) {
-        logger.debug?.(`[${account.accountId}] device status: ${String(status)}`);
+        logger.debug?.(`[${account.accountId}] device status: ${name}`);
       }
     }),
   );
+
+  await handle.configure();
 
   logger.info(
     `[${account.accountId}] connected to Meshtastic (${account.transport}) at ${formatMeshtasticEndpoint(account)}`,

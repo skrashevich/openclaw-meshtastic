@@ -6,6 +6,7 @@ export type MeshtasticDeviceHandle = {
   accountId: string;
   device: MeshDevice;
   myNodeNum: number | null;
+  configure: () => Promise<void>;
 };
 
 const devices = new Map<string, MeshtasticDeviceHandle>();
@@ -106,6 +107,7 @@ export async function connectMeshtasticDevice(params: {
   tls: boolean;
   serialPath: string;
   baudRate: number;
+  autoConfigure?: boolean;
 }): Promise<MeshtasticDeviceHandle> {
   const existing = devices.get(params.accountId);
   if (existing) {
@@ -118,6 +120,16 @@ export async function connectMeshtasticDevice(params: {
     accountId: params.accountId,
     device,
     myNodeNum: null,
+    configure: async () => {
+      if (params.transport === "http") {
+        // HTTP transport starts receiving immediately; configure() waits up to ~60s for
+        // routing ACKs that often never arrive over HTTP, which blocks inbound subscribe.
+        void device.configure().catch(() => undefined);
+      } else {
+        await device.configure();
+      }
+      device.setHeartbeatInterval(30_000);
+    },
   };
 
   device.events.onMyNodeInfo.subscribe((info: { myNodeNum?: number }) => {
@@ -126,16 +138,12 @@ export async function connectMeshtasticDevice(params: {
     }
   });
 
-  if (params.transport === "http") {
-    // HTTP transport starts receiving immediately; configure() waits up to ~60s for
-    // routing ACKs that often never arrive over HTTP, which blocks inbound subscribe.
-    void device.configure().catch(() => undefined);
-  } else {
-    await device.configure();
-  }
-  device.setHeartbeatInterval(30_000);
-
   devices.set(params.accountId, handle);
+
+  if (params.autoConfigure !== false) {
+    await handle.configure();
+  }
+
   return handle;
 }
 
