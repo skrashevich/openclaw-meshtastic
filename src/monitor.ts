@@ -66,7 +66,6 @@ export function buildInboundMessage(params: {
   if (!text) {
     return null;
   }
-  // Protobuf omits default from=0; HTTP API surfaces local echoes this way.
   if (params.packet.from === 0) {
     return null;
   }
@@ -99,7 +98,15 @@ export function buildInboundMessage(params: {
   };
 }
 
-export async function monitorMeshtasticProvider(
+/**
+ * Monitor the Meshtastic device for inbound messages.
+ *
+ * The returned promise **stays pending** while the device is connected and
+ * **rejects** when the device disconnects (or the abort signal fires). This
+ * lets the gateway's health-monitor detect the failure and restart the channel
+ * cleanly instead of getting stuck in a "stopped" loop.
+ */
+export function monitorMeshtasticProvider(
   opts: MeshtasticMonitorOptions,
 ): Promise<{ stop: () => void }> {
   const core = getMeshtasticRuntime();
@@ -115,10 +122,12 @@ export async function monitorMeshtasticProvider(
   );
 
   if (!account.configured) {
-    throw new Error(
-      account.transport === "serial"
-        ? `Meshtastic is not configured for account "${account.accountId}" (need serialPath in channels.meshtastic).`
-        : `Meshtastic is not configured for account "${account.accountId}" (need host in channels.meshtastic).`,
+    return Promise.reject(
+      new Error(
+        account.transport === "serial"
+          ? `Meshtastic is not configured for account "${account.accountId}" (need serialPath in channels.meshtastic).`
+          : `Meshtastic is not configured for account "${account.accountId}" (need host in channels.meshtastic).`,
+      ),
     );
   }
 
@@ -127,108 +136,192 @@ export async function monitorMeshtasticProvider(
     accountId: account.accountId,
   });
 
-  const handle = await connectMeshtasticDevice({
-    accountId: account.accountId,
-    transport: account.transport,
-    host: account.host,
-    port: account.port,
-    tls: account.tls,
-    serialPath: account.serialPath,
-    baudRate: account.baudRate,
-    autoConfigure: false,
-  });
+  // --- Start the async work and return a promise that settles on disconnect / abort ---
+  return (async () => {
+    const handle = await connectMeshtasticDevice({
+      accountId: account.accountId,
+      transport: account.transport,
+      host: account.host,
+      port: account.port,
+      tls: account.tls,
+      serialPath: account.serialPath,
+      baudRate: account.baudRate,
+      autoConfigure: false,
+    });
 
-  const allowedChannels = new Set(account.config.channels ?? [0]);
-  const unsubscribers: Array<() => void> = [];
+    const allowedChannels = new Set(account.config.channels ?? [0]);
+    const unsubscribers: Array<() => void> = [];
 
-  // Collect channel PSKs from device config for decrypting encrypted packets
-  // (TCP/serial transports receive encrypted payloads that @meshtastic/core won't decrypt)
-  const channelPsks = new Map<number, Uint8Array>();
+    const channelPsks = new Map<number, Uint8Array>();
 
-  unsubscribers.push(
-    handle.device.events.onChannelPacket.subscribe((channel: { index?: number; settings?: { psk?: Uint8Array } }) => {
-      opts.statusSink?.({
-        lastEventAt: Date.now(),
-        lastTransportActivityAt: Date.now(),
-      });
-      const idx = channel.index ?? 0;
-      const rawPsk = channel.settings?.psk;
-      if (rawPsk && rawPsk.length > 0) {
-        const expanded = expandPsk(rawPsk);
-        if (expanded) {
-          channelPsks.set(idx, expanded);
-        }
-      }
-    }),
-  );
-
-  // For non-HTTP transports: intercept encrypted mesh packets, decrypt with channel PSK,
-  // then forward to the normal onMessagePacket handler pipeline.
-  if (account.transport !== "http") {
     unsubscribers.push(
-      handle.device.events.onMeshPacket.subscribe((meshPacket: {
-        id: number;
-        from: number;
-        to: number;
-        channel: number;
-        rxTime: number;
-        payloadVariant: { case: string; value: unknown };
-      }) => {
+      handle.device.events.onChannelPacket.subscribe(
+        (channel: { index?: number; settings?: { psk?: Uint8Array } }) => {
+          opts.statusSink?.({
+            lastEventAt: Date.now(),
+            lastTransportActivityAt: Date.now(),
+          });
+          const idx = channel.index ?? 0;
+          const rawPsk = channel.settings?.psk;
+          if (rawPsk && rawPsk.length > 0) {
+            const expanded = expandPsk(rawPsk);
+            if (expanded) {
+              channelPsks.set(idx, expanded);
+            }
+          }
+        },
+      ),
+    );
+
+    if (account.transport !== "http") {
+      unsubscribers.push(
+        handle.device.events.onMeshPacket.subscribe(
+          (meshPacket: {
+            id: number;
+            from: number;
+            to: number;
+            channel: number;
+            rxTime: number;
+            payloadVariant: { case: string; value: unknown };
+          }) => {
+            opts.statusSink?.({
+              lastEventAt: Date.now(),
+              lastTransportActivityAt: Date.now(),
+            });
+            if (meshPacket.payloadVariant.case !== "encrypted") {
+              return;
+            }
+            const encrypted = meshPacket.payloadVariant.value as Uint8Array;
+            const chIdx = channelIndexFromPacket(meshPacket.channel);
+            const psk = channelPsks.get(chIdx);
+            if (!psk) {
+              logger.debug?.(
+                `[${account.accountId}] no PSK for channel ${chIdx}, cannot decrypt packet ${meshPacket.id}`,
+              );
+              return;
+            }
+            const decrypted = decryptChannelPacket(
+              encrypted,
+              psk,
+              meshPacket.from,
+              meshPacket.id,
+              chIdx,
+            );
+            if (!decrypted) {
+              logger.debug?.(
+                `[${account.accountId}] decrypt failed for packet ${meshPacket.id} on channel ${chIdx}`,
+              );
+              return;
+            }
+            const syntheticPacket: MeshtasticPacket = {
+              id: meshPacket.id,
+              rxTime: new Date(meshPacket.rxTime ? meshPacket.rxTime * 1000 : Date.now()),
+              type: meshPacket.to === 0xffffffff ? "broadcast" : "direct",
+              from: meshPacket.from,
+              to: meshPacket.to,
+              channel: meshPacket.channel,
+              data: new TextDecoder().decode(decrypted),
+            };
+            void (async () => {
+              try {
+                const message = buildInboundMessage({
+                  packet: syntheticPacket,
+                  myNodeNum: handle.myNodeNum,
+                });
+                if (!message) {
+                  return;
+                }
+                if (message.isGroup && !allowedChannels.has(message.meshChannel)) {
+                  return;
+                }
+                logger.info(
+                  `[${account.accountId}] inbound (decrypted) ${message.isGroup ? "group" : "dm"} from ${message.senderId} on ${message.target}: ${message.text.slice(0, 80)}`,
+                );
+                core.channel.activity.record({
+                  channel: "meshtastic",
+                  accountId: account.accountId,
+                  direction: "inbound",
+                  at: message.timestamp,
+                });
+                if (opts.onMessage) {
+                  await opts.onMessage(message, handle);
+                  return;
+                }
+                await handleMeshtasticInbound({
+                  message,
+                  account,
+                  config: cfg,
+                  runtime,
+                  myNodeNum: handle.myNodeNum,
+                  sendReply: async (target, text, replyToId) => {
+                    const { sendMessageMeshtastic } = await import("./send.js");
+                    await sendMessageMeshtastic(target, text, {
+                      cfg,
+                      accountId: account.accountId,
+                      replyTo: replyToId,
+                      deviceHandle: handle,
+                    });
+                    rememberOutboundEcho(text);
+                    opts.statusSink?.({ lastOutboundAt: Date.now() });
+                    core.channel.activity.record({
+                      channel: "meshtastic",
+                      accountId: account.accountId,
+                      direction: "outbound",
+                    });
+                  },
+                  statusSink: opts.statusSink,
+                });
+              } catch (err) {
+                const line = `[${account.accountId}] decrypted inbound handler failed: ${String(err)}`;
+                logger.error?.(line);
+                runtime.error?.(line);
+              }
+            })();
+          },
+        ),
+      );
+    }
+
+    unsubscribers.push(
+      handle.device.events.onMessagePacket.subscribe((packet: MeshtasticPacket) => {
         opts.statusSink?.({
           lastEventAt: Date.now(),
           lastTransportActivityAt: Date.now(),
         });
-        if (meshPacket.payloadVariant.case !== "encrypted") {
-          return; // decoded packets are handled by onMessagePacket already
-        }
-        const encrypted = meshPacket.payloadVariant.value as Uint8Array;
-        const chIdx = channelIndexFromPacket(meshPacket.channel);
-        const psk = channelPsks.get(chIdx);
-        if (!psk) {
-          logger.debug?.(
-            `[${account.accountId}] no PSK for channel ${chIdx}, cannot decrypt packet ${meshPacket.id}`,
-          );
-          return;
-        }
-        const decrypted = decryptChannelPacket(encrypted, psk, meshPacket.from, meshPacket.id, chIdx);
-        if (!decrypted) {
-          logger.debug?.(
-            `[${account.accountId}] decrypt failed for packet ${meshPacket.id} on channel ${chIdx}`,
-          );
-          return;
-        }
-        // Build a synthetic MeshtasticPacket matching onMessagePacket shape and dispatch
-        const syntheticPacket: MeshtasticPacket = {
-          id: meshPacket.id,
-          rxTime: new Date(meshPacket.rxTime ? meshPacket.rxTime * 1000 : Date.now()),
-          type: meshPacket.to === 0xffffffff ? "broadcast" : "direct",
-          from: meshPacket.from,
-          to: meshPacket.to,
-          channel: meshPacket.channel,
-          data: new TextDecoder().decode(decrypted),
-        };
         void (async () => {
           try {
-            const message = buildInboundMessage({ packet: syntheticPacket, myNodeNum: handle.myNodeNum });
+            const message = buildInboundMessage({
+              packet,
+              myNodeNum: handle.myNodeNum,
+            });
             if (!message) {
               return;
             }
             if (message.isGroup && !allowedChannels.has(message.meshChannel)) {
+              if (core.logging.shouldLogVerbose()) {
+                logger.debug?.(
+                  `[${account.accountId}] skip mesh channel ${message.meshChannel} (not in allowlist)`,
+                );
+              }
               return;
             }
+
             logger.info(
-              `[${account.accountId}] inbound (decrypted) ${message.isGroup ? "group" : "dm"} from ${message.senderId} on ${message.target}: ${message.text.slice(0, 80)}`,
+              `[${account.accountId}] inbound ${message.isGroup ? "group" : "dm"} from ${message.senderId} on ${message.target}: ${message.text.slice(0, 80)}`,
             );
+
             core.channel.activity.record({
               channel: "meshtastic",
               accountId: account.accountId,
               direction: "inbound",
               at: message.timestamp,
             });
+
             if (opts.onMessage) {
               await opts.onMessage(message, handle);
               return;
             }
+
             await handleMeshtasticInbound({
               message,
               account,
@@ -254,145 +347,85 @@ export async function monitorMeshtasticProvider(
               statusSink: opts.statusSink,
             });
           } catch (err) {
-            const line = `[${account.accountId}] decrypted inbound handler failed: ${String(err)}`;
+            const line = `[${account.accountId}] inbound handler failed: ${String(err)}`;
             logger.error?.(line);
             runtime.error?.(line);
           }
         })();
       }),
     );
-  }
 
-  unsubscribers.push(
-    handle.device.events.onMessagePacket.subscribe((packet: MeshtasticPacket) => {
-      opts.statusSink?.({
-        lastEventAt: Date.now(),
-        lastTransportActivityAt: Date.now(),
-      });
-      void (async () => {
-        try {
-          const message = buildInboundMessage({
-            packet,
-            myNodeNum: handle.myNodeNum,
+    // ---- Disconnect detector: reject the outer promise when the device drops ----
+    let settled = false;
+
+    const doCleanup = () => {
+      if (settled) return;
+      settled = true;
+      for (const unsubscribe of unsubscribers) {
+        unsubscribe();
+      }
+      void disconnectMeshtasticDevice(account.accountId);
+    };
+
+    unsubscribers.push(
+      handle.device.events.onDeviceStatus.subscribe((status: unknown) => {
+        const name = statusName(status);
+        const now = Date.now();
+        if (
+          status === Types.DeviceStatusEnum.DeviceConnected ||
+          status === Types.DeviceStatusEnum.DeviceConfigured ||
+          name.includes("DeviceConnected") ||
+          name.includes("DeviceConfigured")
+        ) {
+          opts.statusSink?.({
+            connected: true,
+            lastConnectedAt: now,
+            lastEventAt: now,
+            lastTransportActivityAt: now,
           });
-          if (!message) {
-            return;
-          }
-          if (message.isGroup && !allowedChannels.has(message.meshChannel)) {
-            if (core.logging.shouldLogVerbose()) {
-              logger.debug?.(
-                `[${account.accountId}] skip mesh channel ${message.meshChannel} (not in allowlist)`,
-              );
-            }
-            return;
-          }
-
-          logger.info(
-            `[${account.accountId}] inbound ${message.isGroup ? "group" : "dm"} from ${message.senderId} on ${message.target}: ${message.text.slice(0, 80)}`,
-          );
-
-          core.channel.activity.record({
-            channel: "meshtastic",
-            accountId: account.accountId,
-            direction: "inbound",
-            at: message.timestamp,
+        } else if (
+          status === Types.DeviceStatusEnum.DeviceDisconnected ||
+          name.includes("DeviceDisconnected") ||
+          name.toLowerCase().includes("disconnect")
+        ) {
+          opts.statusSink?.({
+            connected: false,
+            lastEventAt: now,
+            lastTransportActivityAt: now,
           });
-
-          if (opts.onMessage) {
-            await opts.onMessage(message, handle);
-            return;
-          }
-
-          await handleMeshtasticInbound({
-            message,
-            account,
-            config: cfg,
-            runtime,
-            myNodeNum: handle.myNodeNum,
-            sendReply: async (target, text, replyToId) => {
-              const { sendMessageMeshtastic } = await import("./send.js");
-              await sendMessageMeshtastic(target, text, {
-                cfg,
-                accountId: account.accountId,
-                replyTo: replyToId,
-                deviceHandle: handle,
-              });
-              rememberOutboundEcho(text);
-              opts.statusSink?.({ lastOutboundAt: Date.now() });
-              core.channel.activity.record({
-                channel: "meshtastic",
-                accountId: account.accountId,
-                direction: "outbound",
-              });
-            },
-            statusSink: opts.statusSink,
-          });
-        } catch (err) {
-          const line = `[${account.accountId}] inbound handler failed: ${String(err)}`;
-          logger.error?.(line);
-          runtime.error?.(line);
+          // Device dropped — reject the lifecycle so the health-monitor restarts.
+          doCleanup();
         }
-      })();
-    }),
-  );
+        if (core.logging.shouldLogVerbose()) {
+          logger.debug?.(`[${account.accountId}] device status: ${name}`);
+        }
+      }),
+    );
 
-  unsubscribers.push(
-    handle.device.events.onDeviceStatus.subscribe((status: unknown) => {
-      const name = statusName(status);
-      const now = Date.now();
-      if (
-        status === Types.DeviceStatusEnum.DeviceConnected ||
-        status === Types.DeviceStatusEnum.DeviceConfigured ||
-        name.includes("DeviceConnected") ||
-        name.includes("DeviceConfigured")
-      ) {
-        opts.statusSink?.({
-          connected: true,
-          lastConnectedAt: now,
-          lastEventAt: now,
-          lastTransportActivityAt: now,
-        });
-      } else if (
-        status === Types.DeviceStatusEnum.DeviceDisconnected ||
-        name.includes("DeviceDisconnected") ||
-        name.toLowerCase().includes("disconnect")
-      ) {
-        opts.statusSink?.({
-          connected: false,
-          lastEventAt: now,
-          lastTransportActivityAt: now,
-        });
+    await handle.configure();
+
+    logger.info(
+      `[${account.accountId}] connected to Meshtastic (${account.transport}) at ${formatMeshtasticEndpoint(account)}`,
+    );
+
+    // Return a promise that stays pending while connected. It resolves on
+    // external abort and rejects on device disconnect — in both cases the
+    // gateway's health-monitor can restart the channel.
+    return new Promise<{ stop: () => void }>((resolve, reject) => {
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        doCleanup();
+        resolve({ stop: () => {} });
+      };
+      opts.abortSignal?.addEventListener("abort", onAbort, { once: true });
+
+      // Poll `settled` — if doCleanup() already ran (device disconnected
+      // between configure() and this promise construction) reject immediately.
+      if (settled) {
+        opts.abortSignal?.removeEventListener("abort", onAbort);
+        reject(new Error("Meshtastic device disconnected during startup"));
       }
-      if (core.logging.shouldLogVerbose()) {
-        logger.debug?.(`[${account.accountId}] device status: ${name}`);
-      }
-    }),
-  );
-
-  await handle.configure();
-
-  logger.info(
-    `[${account.accountId}] connected to Meshtastic (${account.transport}) at ${formatMeshtasticEndpoint(account)}`,
-  );
-
-  let stopped = false;
-  const cleanup = () => {
-    if (stopped) {
-      return;
-    }
-    stopped = true;
-    opts.abortSignal?.removeEventListener("abort", abortHandler);
-    for (const unsubscribe of unsubscribers) {
-      unsubscribe();
-    }
-    void disconnectMeshtasticDevice(account.accountId);
-  };
-  const abortHandler = () => {
-    cleanup();
-  };
-  opts.abortSignal?.addEventListener("abort", abortHandler, { once: true });
-
-  return {
-    stop: cleanup,
-  };
+    });
+  })();
 }

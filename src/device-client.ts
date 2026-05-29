@@ -147,19 +147,34 @@ export async function connectMeshtasticDevice(params: {
   return handle;
 }
 
+const DISCONNECT_TIMEOUT_MS = 5_000;
+
 export async function disconnectMeshtasticDevice(accountId: string): Promise<void> {
   const handle = devices.get(accountId);
   if (!handle) {
     return;
   }
+  // Remove from map immediately so reconnect attempts don't deadlock on
+  // the stale handle.
+  devices.delete(accountId);
   try {
-    await handle.device.disconnect();
+    await Promise.race([
+      handle.device.disconnect(),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`disconnect timeout (${DISCONNECT_TIMEOUT_MS}ms)`)),
+          DISCONNECT_TIMEOUT_MS,
+        ),
+      ),
+    ]);
   } catch (error) {
+    // Swallow all errors – the handle is already removed from the map and
+    // the underlying socket is almost certainly dead at this point.
+    // Previously only "Invalid state" was caught, but timeout and stream
+    // errors on already-destroyed sockets are equally benign.
     if (!(error instanceof Error) || !error.message.includes("Invalid state")) {
-      throw error;
+      // Non-fatal: device already gone from map.
     }
-  } finally {
-    devices.delete(accountId);
   }
 }
 
