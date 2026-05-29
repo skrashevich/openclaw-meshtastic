@@ -26,6 +26,24 @@ Supported:
 - OpenClaw **>= 2026.5.26**
 - A Meshtastic node reachable by HTTP, TCP (4403), or USB serial
 
+## Privacy and logging
+
+Inbound mesh traffic can include personal or operational content. By default this plugin logs **metadata only** (account, DM vs group, sender id, target, message id, text length) — not message bodies.
+
+To include up to 80 characters of inbound text in Gateway logs (debugging only), set:
+
+```json5
+{
+  channels: {
+    meshtastic: {
+      logInboundMessageContent: true,
+    },
+  },
+}
+```
+
+Review who can read Gateway logs and how long they are retained before enabling this. OpenClaw verbose logging (`shouldLogVerbose`) does not change this behavior.
+
 ## Install
 
 From a git checkout (development):

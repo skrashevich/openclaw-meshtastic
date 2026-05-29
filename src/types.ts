@@ -49,6 +49,8 @@ export type MeshtasticAccountConfig = {
   dmHistoryLimit?: number;
   dms?: Record<string, DmConfig>;
   textChunkLimit?: number;
+  /** When true, inbound info logs include up to 80 characters of message text (default: metadata only). */
+  logInboundMessageContent?: boolean;
   chunkMode?: "length" | "newline";
   blockStreaming?: boolean;
   blockStreamingCoalesce?: BlockStreamingCoalesceConfig;

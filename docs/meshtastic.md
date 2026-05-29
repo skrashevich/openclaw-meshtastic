@@ -51,6 +51,23 @@ This plugin depends on `@meshtastic/core` and official transport packages, which
 **GPL-3.0-only**. The plugin package isolates that dependency; review GPL obligations
 before redistribution.
 
+## Privacy and logging
+
+Meshtastic DMs and channel traffic may contain sensitive information. The plugin writes
+inbound **info** logs without message text by default (sender, target, message id, length).
+
+Enable plaintext excerpts only when you need short-lived debugging and trust log access:
+
+```json5
+{
+  channels: {
+    meshtastic: {
+      logInboundMessageContent: true,
+    },
+  },
+}
+```
+
 ## Transport modes
 
 | `transport` | Package | Typical use |

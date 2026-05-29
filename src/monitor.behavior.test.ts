@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { clearOutboundEchoCache, isOutboundEcho, rememberOutboundEcho } from "./echo-dedupe.js";
-import { buildInboundMessage } from "./monitor.js";
+import { buildInboundMessage, formatInboundLogLine } from "./monitor.js";
+import type { MeshtasticInboundMessage } from "./types.js";
 
 describe("echo dedupe", () => {
   afterEach(() => {
@@ -11,6 +12,39 @@ describe("echo dedupe", () => {
     rememberOutboundEcho("hello mesh");
     expect(isOutboundEcho("hello mesh")).toBe(true);
     expect(isOutboundEcho("other")).toBe(false);
+  });
+});
+
+describe("formatInboundLogLine", () => {
+  const message: MeshtasticInboundMessage = {
+    messageId: "42",
+    target: "channel:0",
+    senderNodeNum: 1,
+    senderId: "!aabbccdd",
+    text: "secret mesh payload",
+    timestamp: 1,
+    isGroup: true,
+    meshChannel: 0,
+  };
+
+  it("omits message body by default", () => {
+    const line = formatInboundLogLine({
+      accountId: "default",
+      message,
+      logMessageContent: false,
+    });
+    expect(line).toContain("from !aabbccdd on channel:0 id=42");
+    expect(line).toContain("(19 chars)");
+    expect(line).not.toContain("secret");
+  });
+
+  it("includes excerpt when explicitly enabled", () => {
+    const line = formatInboundLogLine({
+      accountId: "default",
+      message,
+      logMessageContent: true,
+    });
+    expect(line).toContain(": secret mesh payload");
   });
 });
 

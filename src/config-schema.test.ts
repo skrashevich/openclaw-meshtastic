@@ -33,6 +33,16 @@ describe("meshtastic config schema", () => {
     expect(config.channels).toEqual([0]);
   });
 
+  it("accepts logInboundMessageContent opt-in", () => {
+    const config = expectValidConfig(
+      MeshtasticConfigSchema.safeParse({
+        host: "192.168.1.10",
+        logInboundMessageContent: true,
+      }),
+    );
+    expect(config.logInboundMessageContent).toBe(true);
+  });
+
   it('rejects dmPolicy="open" without allowFrom "*"', () => {
     const issues = expectInvalidConfig(
       MeshtasticConfigSchema.safeParse({

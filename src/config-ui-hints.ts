@@ -45,4 +45,8 @@ export const meshtasticChannelConfigUiHints = {
     label: "Meshtastic Text Chunk Limit",
     help: "Maximum characters per outbound mesh text message (default ~200). Long replies are split into chunks.",
   },
+  logInboundMessageContent: {
+    label: "Log Inbound Message Content",
+    help: "When true, Gateway logs include up to 80 characters of inbound mesh text. Default is false (metadata only: sender, target, message id, length).",
+  },
 } satisfies Record<string, ChannelConfigUiHint>;

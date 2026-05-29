@@ -45,6 +45,7 @@ const MeshtasticAccountSchemaBase = z
     markdown: MarkdownConfigSchema,
     ...ReplyRuntimeConfigSchemaShape,
     textChunkLimit: z.number().int().min(40).max(500).optional(),
+    logInboundMessageContent: z.boolean().optional(),
   })
   .strict();
 

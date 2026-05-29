@@ -48,6 +48,22 @@ function statusName(status: unknown): string {
     : String(status);
 }
 
+/** Inbound log line — message body only when logInboundMessageContent is enabled. */
+export function formatInboundLogLine(params: {
+  accountId: string;
+  message: MeshtasticInboundMessage;
+  decrypted?: boolean;
+  logMessageContent: boolean;
+}): string {
+  const kind = params.message.isGroup ? "group" : "dm";
+  const prefix = params.decrypted ? "inbound (decrypted)" : "inbound";
+  const meta = `[${params.accountId}] ${prefix} ${kind} from ${params.message.senderId} on ${params.message.target} id=${params.message.messageId}`;
+  if (!params.logMessageContent) {
+    return `${meta} (${params.message.text.length} chars)`;
+  }
+  return `${meta}: ${params.message.text.slice(0, 80)}`;
+}
+
 type MeshtasticPacket = {
   id: number;
   rxTime: Date;
@@ -135,6 +151,7 @@ export function monitorMeshtasticProvider(
     channel: "meshtastic",
     accountId: account.accountId,
   });
+  const logMessageContent = account.config.logInboundMessageContent === true;
 
   // --- Start the async work and return a promise that settles on disconnect / abort ---
   return (async () => {
@@ -235,7 +252,12 @@ export function monitorMeshtasticProvider(
                   return;
                 }
                 logger.info(
-                  `[${account.accountId}] inbound (decrypted) ${message.isGroup ? "group" : "dm"} from ${message.senderId} on ${message.target}: ${message.text.slice(0, 80)}`,
+                  formatInboundLogLine({
+                    accountId: account.accountId,
+                    message,
+                    decrypted: true,
+                    logMessageContent,
+                  }),
                 );
                 core.channel.activity.record({
                   channel: "meshtastic",
@@ -307,7 +329,11 @@ export function monitorMeshtasticProvider(
             }
 
             logger.info(
-              `[${account.accountId}] inbound ${message.isGroup ? "group" : "dm"} from ${message.senderId} on ${message.target}: ${message.text.slice(0, 80)}`,
+              formatInboundLogLine({
+                accountId: account.accountId,
+                message,
+                logMessageContent,
+              }),
             );
 
             core.channel.activity.record({
