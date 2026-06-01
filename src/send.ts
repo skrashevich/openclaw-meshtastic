@@ -37,6 +37,8 @@ type SendMeshtasticResult = {
 };
 
 const DEFAULT_CHUNK_LIMIT = 200;
+const DEFAULT_NON_ASCII_CHUNK_LIMIT = 100;
+const DEFAULT_CHUNK_DELAY_MS = 2_000;
 const DEFAULT_SEND_ACK_WAIT_MS = 5_000;
 
 type MeshtasticQueueSnapshotItem = {
@@ -78,6 +80,28 @@ function chunkText(text: string, limit: number): string[] {
     chunks.push(chars.slice(cursor, cursor + limit).join(""));
   }
   return chunks;
+}
+
+function containsNonAscii(text: string): boolean {
+  return /[^\x00-\x7F]/.test(text);
+}
+
+function resolveChunkLimit(config: CoreConfig, text: string): number {
+  if (containsNonAscii(text)) {
+    return (
+      (config as Record<string, unknown>).nonAsciiTextChunkLimit as number | undefined ??
+      Math.min(
+        (config as Record<string, unknown>).textChunkLimit as number | undefined ?? DEFAULT_CHUNK_LIMIT,
+        DEFAULT_NON_ASCII_CHUNK_LIMIT,
+      )
+    );
+  }
+  return (config as Record<string, unknown>).textChunkLimit as number | undefined ?? DEFAULT_CHUNK_LIMIT;
+}
+
+function sleep(ms: number): Promise<void> {
+  if (!Number.isFinite(ms) || ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function resolveTarget(to: string, opts?: SendMeshtasticOptions): string {
@@ -172,11 +196,16 @@ export async function sendMessageMeshtastic(
   }
 
   const target = resolveTarget(to, opts);
-  const chunkLimit = account.config.textChunkLimit ?? DEFAULT_CHUNK_LIMIT;
+  const chunkLimit = resolveChunkLimit(account.config, text);
   const chunks = chunkText(text, chunkLimit);
   if (chunks.length === 0) {
     throw new Error("Message must be non-empty for Meshtastic sends");
   }
+  const chunkDelayMs = Math.max(
+    0,
+    (account.config as Record<string, unknown>).textChunkDelayMs as number | undefined ??
+      DEFAULT_CHUNK_DELAY_MS,
+  );
 
   const handle =
     opts.deviceHandle ??
@@ -198,7 +227,8 @@ export async function sendMessageMeshtastic(
   if (isMeshtasticGroupTarget(target)) {
     const channelIndex = parseMeshtasticChannelIndex(target) ?? 0;
     const channel = resolveChannelNumber(channelIndex);
-    for (const chunk of chunks) {
+    for (let index = 0; index < chunks.length; index++) {
+      const chunk = chunks[index];
       lastPacketId = await sendTextWithoutBlockingForAck({
         handle,
         text: chunk,
@@ -207,13 +237,15 @@ export async function sendMessageMeshtastic(
         replyId: parsedReplyId,
         ackWaitMs: opts.ackWaitMs,
       });
+      if (index < chunks.length - 1) await sleep(chunkDelayMs);
     }
   } else {
     const nodeNum = parseMeshtasticNodeNum(target);
     if (nodeNum === undefined) {
       throw new Error(`Invalid Meshtastic node target: ${target}`);
     }
-    for (const chunk of chunks) {
+    for (let index = 0; index < chunks.length; index++) {
+      const chunk = chunks[index];
       lastPacketId = await sendTextWithoutBlockingForAck({
         handle,
         text: chunk,
@@ -221,6 +253,7 @@ export async function sendMessageMeshtastic(
         replyId: parsedReplyId,
         ackWaitMs: opts.ackWaitMs,
       });
+      if (index < chunks.length - 1) await sleep(chunkDelayMs);
     }
   }
 

@@ -7,6 +7,7 @@ import {
 import { createChannelPairingController } from "openclaw/plugin-sdk/channel-pairing";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import { resolveInboundRouteEnvelopeBuilderWithRuntime } from "openclaw/plugin-sdk/inbound-envelope";
+import { recordInboundSessionAndDispatchReply } from "openclaw/plugin-sdk/inbound-reply-dispatch";
 import {
   deliverFormattedTextWithAttachments,
   type OutboundReplyPayload,
@@ -342,7 +343,7 @@ export async function handleMeshtasticInbound(params: {
     ReplyToId: message.replyToId,
   });
 
-  await core.channel.turn.runAssembled({
+  const assembledTurn = {
     cfg: config as OpenClawConfig,
     channel: CHANNEL_ID,
     accountId: account.accountId,
@@ -354,7 +355,7 @@ export async function handleMeshtasticInbound(params: {
     dispatchReplyWithBufferedBlockDispatcher:
       core.channel.reply.dispatchReplyWithBufferedBlockDispatcher,
     delivery: {
-      deliver: async (payload) => {
+      deliver: async (payload: OutboundReplyPayload) => {
         await deliverMeshtasticReply({
           payload,
           cfg: config,
@@ -364,7 +365,7 @@ export async function handleMeshtasticInbound(params: {
           statusSink: params.statusSink,
         });
       },
-      onError: (err, info) => {
+      onError: (err: unknown, info: { kind: string }) => {
         runtime.error?.(`meshtastic ${info.kind} reply failed: ${String(err)}`);
       },
     },
@@ -373,7 +374,7 @@ export async function handleMeshtasticInbound(params: {
       // Meshtastic is plain text over LoRa; message_tool_only adds an internal
       // delivery hint to the agent prompt and expects visible sends via the
       // message tool, which does not fit this channel.
-      sourceReplyDeliveryMode: "automatic",
+      sourceReplyDeliveryMode: "automatic" as const,
       skillFilter: groupMatch.groupConfig?.skills,
       disableBlockStreaming:
         typeof account.config.blockStreaming === "boolean"
@@ -381,9 +382,35 @@ export async function handleMeshtasticInbound(params: {
           : undefined,
     },
     record: {
-      onRecordError: (err) => {
+      onRecordError: (err: unknown) => {
         runtime.error?.(`meshtastic: failed updating session meta: ${String(err)}`);
       },
     },
-  });
+  };
+
+  const runAssembled =
+    core.channel.turn?.runAssembled ?? core.channel.turn?.dispatchAssembled;
+  if (runAssembled) {
+    await runAssembled(assembledTurn);
+  } else {
+    runtime.log?.(
+      "meshtastic: core.channel.turn missing, using compat inbound-reply dispatcher fallback",
+    );
+    await recordInboundSessionAndDispatchReply({
+      cfg: assembledTurn.cfg,
+      channel: assembledTurn.channel,
+      accountId: assembledTurn.accountId,
+      agentId: assembledTurn.agentId,
+      routeSessionKey: assembledTurn.routeSessionKey,
+      storePath: assembledTurn.storePath,
+      ctxPayload: assembledTurn.ctxPayload,
+      recordInboundSession: assembledTurn.recordInboundSession,
+      dispatchReplyWithBufferedBlockDispatcher:
+        assembledTurn.dispatchReplyWithBufferedBlockDispatcher,
+      deliver: assembledTurn.delivery.deliver,
+      onRecordError: assembledTurn.record.onRecordError,
+      onDispatchError: assembledTurn.delivery.onError,
+      replyOptions: assembledTurn.replyOptions,
+    });
+  }
 }
