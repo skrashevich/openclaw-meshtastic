@@ -150,8 +150,8 @@ describe("meshtastic inbound behavior", () => {
           })),
           dispatchReplyWithBufferedBlockDispatcher: vi.fn(),
         },
-        turn: {
-          runAssembled: vi.fn(async () => undefined),
+        inbound: {
+          run: vi.fn(async () => ({ dispatched: true })),
         },
         session: {
           recordInboundSession: vi.fn(),
@@ -189,10 +189,17 @@ describe("meshtastic inbound behavior", () => {
       sendReply,
     });
 
-    expect(getMeshtasticRuntime().channel.turn.runAssembled).toHaveBeenCalledWith(
+    expect(getMeshtasticRuntime().channel.inbound.run).toHaveBeenCalledWith(
       expect.objectContaining({
-        replyOptions: expect.objectContaining({
-          sourceReplyDeliveryMode: "automatic",
+        channel: "meshtastic",
+        accountId: expect.any(String),
+        raw: expect.objectContaining({
+          text: "И опять привет",
+        }),
+        adapter: expect.objectContaining({
+          ingest: expect.any(Function),
+          classify: expect.any(Function),
+          resolveTurn: expect.any(Function),
         }),
       }),
     );
