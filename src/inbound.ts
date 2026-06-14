@@ -342,48 +342,65 @@ export async function handleMeshtasticInbound(params: {
     ReplyToId: message.replyToId,
   });
 
-  await core.channel.turn.runAssembled({
-    cfg: config as OpenClawConfig,
+  await core.channel.inbound.run({
     channel: CHANNEL_ID,
     accountId: account.accountId,
-    agentId: route.agentId,
-    routeSessionKey: route.sessionKey,
-    storePath,
-    ctxPayload,
-    recordInboundSession: core.channel.session.recordInboundSession,
-    dispatchReplyWithBufferedBlockDispatcher:
-      core.channel.reply.dispatchReplyWithBufferedBlockDispatcher,
-    delivery: {
-      deliver: async (payload) => {
-        await deliverMeshtasticReply({
-          payload,
-          cfg: config,
-          target: peerId,
-          accountId: account.accountId,
-          sendReply: params.sendReply,
-          statusSink: params.statusSink,
-        });
-      },
-      onError: (err, info) => {
-        runtime.error?.(`meshtastic ${info.kind} reply failed: ${String(err)}`);
-      },
-    },
-    replyPipeline: {},
-    replyOptions: {
-      // Meshtastic is plain text over LoRa; message_tool_only adds an internal
-      // delivery hint to the agent prompt and expects visible sends via the
-      // message tool, which does not fit this channel.
-      sourceReplyDeliveryMode: "automatic",
-      skillFilter: groupMatch.groupConfig?.skills,
-      disableBlockStreaming:
-        typeof account.config.blockStreaming === "boolean"
-          ? !account.config.blockStreaming
-          : undefined,
-    },
-    record: {
-      onRecordError: (err) => {
-        runtime.error?.(`meshtastic: failed updating session meta: ${String(err)}`);
-      },
+    raw: message,
+    adapter: {
+      ingest: () => ({
+        id: message.messageId,
+        timestamp: message.timestamp,
+        rawText: rawBody,
+        raw: message,
+      }),
+      classify: () => ({
+        canStartAgentTurn: true,
+        kind: "message" as const,
+      }),
+      resolveTurn: () => ({
+        cfg: config as OpenClawConfig,
+        channel: CHANNEL_ID,
+        accountId: account.accountId,
+        agentId: route.agentId,
+        routeSessionKey: route.sessionKey,
+        storePath,
+        ctxPayload,
+        recordInboundSession: core.channel.session.recordInboundSession,
+        dispatchReplyWithBufferedBlockDispatcher:
+          core.channel.reply.dispatchReplyWithBufferedBlockDispatcher,
+        delivery: {
+          deliver: async (payload) => {
+            await deliverMeshtasticReply({
+              payload,
+              cfg: config,
+              target: peerId,
+              accountId: account.accountId,
+              sendReply: params.sendReply,
+              statusSink: params.statusSink,
+            });
+          },
+          onError: (err, info) => {
+            runtime.error?.(`meshtastic ${info.kind} reply failed: ${err instanceof Error ? err.message : JSON.stringify(err)}`);
+          },
+        },
+        replyPipeline: {},
+        replyOptions: {
+          // Meshtastic is plain text over LoRa; message_tool_only adds an internal
+          // delivery hint to the agent prompt and expects visible sends via the
+          // message tool, which does not fit this channel.
+          sourceReplyDeliveryMode: "automatic",
+          skillFilter: groupMatch.groupConfig?.skills,
+          disableBlockStreaming:
+            typeof account.config.blockStreaming === "boolean"
+              ? !account.config.blockStreaming
+              : undefined,
+        },
+        record: {
+          onRecordError: (err) => {
+            runtime.error?.(`meshtastic: failed updating session meta: ${String(err)}`);
+          },
+        },
+      }),
     },
   });
 }
